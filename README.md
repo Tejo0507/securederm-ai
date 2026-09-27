@@ -74,12 +74,12 @@ No hospital ever sees another hospital's data. Only gradients cross the wire, an
 
 | | |
 |---|---|
-| 🔒 **Privacy by design** | Opacus-based differential privacy (configurable epsilon/delta) on every local training round |
-| 🧠 **ResNet18 classifier** | 10-class wound classification with an out-of-distribution "unknown" safety net |
-| 🔗 **FedAvg aggregation** | Weighted federated averaging across an arbitrary number of hospital nodes |
-| 🛡️ **Hardened API layer** | Token-gated node registration, signed session tokens, rate-limited auth endpoints |
-| 🖥️ **Modern web console** | Next.js dashboard for live training rounds, model marketplace, and hospital directory |
-| 🧪 **Real test coverage** | 31 automated tests across the model, aggregator, and web backend |
+| **Privacy by design** | Opacus-based differential privacy (configurable epsilon/delta) on every local training round |
+| **ResNet18 classifier** | 10-class wound classification with an out-of-distribution "unknown" safety net |
+| **FedAvg aggregation** | Weighted federated averaging across an arbitrary number of hospital nodes |
+| **Hardened API layer** | Token-gated node registration, signed session tokens, rate-limited auth endpoints |
+| **Modern web console** | Next.js dashboard for live training rounds, model marketplace, and hospital directory |
+| **Real test coverage** | 31 automated tests across the model, aggregator, and web backend |
 
 <br/>
 
