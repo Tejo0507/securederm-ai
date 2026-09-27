@@ -1,0 +1,18 @@
+# ── Hospital Training Node ───────────────────────────────────────────
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY config/ config/
+COPY model/ model/
+COPY hospital_node/ hospital_node/
+COPY __init__.py .
+
+# Dataset is mounted at runtime:
+#   docker run -v /path/to/data:/app/datasets hospital-node --node hospital_A
+VOLUME /app/datasets
+
+ENTRYPOINT ["python", "-m", "hospital_node.client"]

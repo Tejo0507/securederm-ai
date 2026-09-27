@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Project-specific
+checkpoints/
+logs/
+datasets/
+*.pth
+*.pt
+*.onnx
+*.tflite
+*.db
+*.sqlite
+*.sqlite3
+wound_dataset/
+wound_dataset.zip
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Node / Next.js (web/)
+node_modules/
+.next/
+out/
+*.tsbuildinfo

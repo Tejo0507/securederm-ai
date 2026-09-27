@@ -1,0 +1,1 @@
+# SecureDerm AI root package

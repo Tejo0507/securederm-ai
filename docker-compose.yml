@@ -1,0 +1,39 @@
+version: "3.9"
+
+services:
+  aggregator:
+    build:
+      context: .
+      dockerfile: Dockerfile.aggregator
+    ports:
+      - "8000:8000"
+    environment:
+      - AGGREGATOR_HOST=0.0.0.0
+      - AGGREGATOR_PORT=8000
+      - JWT_SECRET=${JWT_SECRET:-change_me}
+
+  hospital_a:
+    build:
+      context: .
+      dockerfile: Dockerfile.node
+    depends_on:
+      - aggregator
+    environment:
+      - AGGREGATOR_HOST=aggregator
+      - AGGREGATOR_PORT=8000
+    volumes:
+      - ./datasets/hospital_A:/app/datasets/hospital_A
+    command: ["--node", "hospital_A", "--rounds", "5"]
+
+  hospital_b:
+    build:
+      context: .
+      dockerfile: Dockerfile.node
+    depends_on:
+      - aggregator
+    environment:
+      - AGGREGATOR_HOST=aggregator
+      - AGGREGATOR_PORT=8000
+    volumes:
+      - ./datasets/hospital_B:/app/datasets/hospital_B
+    command: ["--node", "hospital_B", "--rounds", "5"]

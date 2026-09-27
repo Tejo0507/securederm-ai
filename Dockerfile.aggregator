@@ -1,0 +1,16 @@
+# ── Aggregator Server ────────────────────────────────────────────────
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY config/ config/
+COPY model/ model/
+COPY aggregator/ aggregator/
+COPY __init__.py .
+
+EXPOSE 8000
+
+CMD ["python", "-m", "aggregator.server"]
