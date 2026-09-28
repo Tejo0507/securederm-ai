@@ -50,19 +50,30 @@ export default function DashboardPage() {
   const [tab, setTab] = useState<Tab>("overview");
   const [hospital, setHospital] = useState<HospitalInfo | null>(null);
 
-  /* auth guard */
+  /* auth guard: session lives in an httpOnly cookie, so we can't just
+     check localStorage for a token — ask the backend who (if anyone)
+     the current cookie belongs to. */
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      router.push("/login");
-      return;
-    }
     const stored = localStorage.getItem("hospital");
-    if (stored) setHospital(JSON.parse(stored));
+    if (stored) setHospital(JSON.parse(stored)); // optimistic first paint
+
+    apiFetch<HospitalInfo>("/api/auth/me")
+      .then((h) => {
+        setHospital(h);
+        localStorage.setItem("hospital", JSON.stringify(h));
+      })
+      .catch(() => {
+        localStorage.removeItem("hospital");
+        router.push("/login");
+      });
   }, [router]);
 
-  function logout() {
-    localStorage.removeItem("token");
+  async function logout() {
+    try {
+      await apiFetch("/api/auth/logout", { method: "POST" });
+    } catch {
+      // even if the network call fails, still clear local state and leave
+    }
     localStorage.removeItem("hospital");
     router.push("/");
   }
@@ -239,26 +250,15 @@ function DataTab() {
     }
 
     try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001"}/api/datasets/upload`,
-        {
-          method: "POST",
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-          body: fd,
-        },
+      const data = await apiFetch<{ uploaded: number; total_images: number }>(
+        "/api/datasets/upload",
+        { method: "POST", body: fd },
       );
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ detail: "Upload failed" }));
-        setMsg(err.detail || "Upload failed");
-        return;
-      }
-      const data = await res.json();
       setMsg(`Uploaded ${data.uploaded} images (${data.total_images} total)`);
       input.value = "";
       loadDatasets();
-    } catch {
-      setMsg("Upload failed. Is the backend running?");
+    } catch (err: unknown) {
+      setMsg(err instanceof Error ? err.message : "Upload failed. Is the backend running?");
     } finally {
       setUploading(false);
     }

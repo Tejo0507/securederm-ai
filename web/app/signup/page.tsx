@@ -26,15 +26,16 @@ export default function SignupPage() {
     setError("");
     setLoading(true);
     try {
-      const data = await apiFetch<{
-        access_token: string;
-        hospital: { id: number; name: string };
-      }>("/api/auth/signup", {
-        method: "POST",
-        body: JSON.stringify(form),
-      });
-      localStorage.setItem("token", data.access_token);
-      localStorage.setItem("hospital", JSON.stringify(data.hospital));
+      const hospital = await apiFetch<{ id: number; name: string }>(
+        "/api/auth/signup",
+        {
+          method: "POST",
+          body: JSON.stringify(form),
+        },
+      );
+      // Session lives in an httpOnly cookie now; this is just non-sensitive
+      // display data cached for the dashboard's first paint.
+      localStorage.setItem("hospital", JSON.stringify(hospital));
       router.push("/dashboard");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Signup failed");

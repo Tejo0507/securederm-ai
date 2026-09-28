@@ -18,15 +18,16 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
     try {
-      const data = await apiFetch<{
-        access_token: string;
-        hospital: { id: number; name: string };
-      }>("/api/auth/login", {
-        method: "POST",
-        body: JSON.stringify({ email, password }),
-      });
-      localStorage.setItem("token", data.access_token);
-      localStorage.setItem("hospital", JSON.stringify(data.hospital));
+      const hospital = await apiFetch<{ id: number; name: string }>(
+        "/api/auth/login",
+        {
+          method: "POST",
+          body: JSON.stringify({ email, password }),
+        },
+      );
+      // Session lives in an httpOnly cookie now; this is just non-sensitive
+      // display data cached for the dashboard's first paint.
+      localStorage.setItem("hospital", JSON.stringify(hospital));
       router.push("/dashboard");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Login failed");
