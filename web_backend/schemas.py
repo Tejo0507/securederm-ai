@@ -26,10 +26,11 @@ class HospitalLogin(BaseModel):
         return v.strip().lower()
 
 
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    hospital: dict
+class HospitalResponse(BaseModel):
+    id: int
+    name: str
+    email: str
+    location: str = ""
 
 
 class TrainingStart(BaseModel):

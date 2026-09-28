@@ -1,13 +1,13 @@
 import hashlib
 import hmac
 import os
+import secrets
 import time
 import json
 import base64
 from collections import defaultdict, deque
 
-from fastapi import Depends, HTTPException, Request
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
 from config.settings import JWT_SECRET
@@ -17,7 +17,66 @@ from web_backend.db_models import Hospital
 SECRET_KEY = JWT_SECRET
 TOKEN_EXPIRY = 86400  # 24 hours
 
-security = HTTPBearer()
+# ── Session cookie configuration ─────────────────────────────────────────
+# Sessions live in an httpOnly cookie instead of being handed to
+# JavaScript (localStorage), so a successful XSS on the frontend can no
+# longer just read the token out and exfiltrate it. `secure=True` is safe
+# in local dev too: browsers treat http://localhost as a secure context.
+SESSION_COOKIE_NAME = "session_token"
+CSRF_COOKIE_NAME = "csrf_token"
+CSRF_HEADER_NAME = "X-CSRF-Token"
+
+# Cookies only protect against CSRF via SameSite when the frontend and
+# API are same-site (as they are here: localhost:3000 / localhost:8001
+# share a registrable domain). A cross-domain production deployment would
+# need SameSite="none" + Secure, at which point the double-submit CSRF
+# check below (verify_csrf) becomes the only thing stopping cross-site
+# requests from riding an authenticated user's cookies — so it is applied
+# unconditionally, not just as a SameSite fallback.
+_COOKIE_SAMESITE = "lax"
+
+
+def set_session_cookies(response: Response, token: str) -> None:
+    """Issue the httpOnly session cookie plus its paired, JS-readable
+    CSRF cookie (double-submit pattern) after a successful login/signup."""
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=token,
+        max_age=TOKEN_EXPIRY,
+        httponly=True,
+        secure=True,
+        samesite=_COOKIE_SAMESITE,
+        path="/",
+    )
+    csrf_token = secrets.token_urlsafe(32)
+    response.set_cookie(
+        key=CSRF_COOKIE_NAME,
+        value=csrf_token,
+        max_age=TOKEN_EXPIRY,
+        httponly=False,  # must be readable by frontend JS to echo back
+        secure=True,
+        samesite=_COOKIE_SAMESITE,
+        path="/",
+    )
+
+
+def clear_session_cookies(response: Response) -> None:
+    response.delete_cookie(SESSION_COOKIE_NAME, path="/")
+    response.delete_cookie(CSRF_COOKIE_NAME, path="/")
+
+
+def verify_csrf(request: Request) -> None:
+    """Double-submit CSRF check for state-changing requests: the value a
+    cross-site attacker's form/fetch cannot read (the cookie) must match
+    a value they also cannot set on our behalf (a custom request header,
+    which triggers a CORS preflight that our origin allowlist blocks)."""
+    cookie_value = request.cookies.get(CSRF_COOKIE_NAME)
+    header_value = request.headers.get(CSRF_HEADER_NAME)
+    if not cookie_value or not header_value or not secrets.compare_digest(
+        cookie_value, header_value
+    ):
+        raise HTTPException(status_code=403, detail="CSRF check failed.")
+
 
 # ── Simple in-memory rate limiting for auth endpoints ────────────────────
 # Not shared across worker processes and resets on restart — adequate to
@@ -99,10 +158,12 @@ def decode_token(token: str) -> dict | None:
 
 
 async def get_current_hospital(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    request: Request,
     db: Session = Depends(get_db),
 ) -> Hospital:
-    token = credentials.credentials
+    token = request.cookies.get(SESSION_COOKIE_NAME)
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
     payload = decode_token(token)
     if payload is None:
         raise HTTPException(status_code=401, detail="Invalid or expired token")

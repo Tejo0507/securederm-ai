@@ -1,13 +1,13 @@
 import io
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from PIL import Image, UnidentifiedImageError
 from sqlalchemy.orm import Session
 
 from web_backend.database import get_db
 from web_backend.db_models import Hospital, Dataset, MLModel
-from web_backend.auth import get_current_hospital
+from web_backend.auth import get_current_hospital, verify_csrf
 
 UPLOAD_DIR = Path(__file__).resolve().parent.parent.parent / "datasets" / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -35,10 +35,12 @@ def _is_genuine_image(content: bytes) -> bool:
 
 @router.post("/datasets/upload")
 async def upload_dataset(
+    request: Request,
     files: list[UploadFile] = File(...),
     hospital: Hospital = Depends(get_current_hospital),
     db: Session = Depends(get_db),
 ):
+    verify_csrf(request)
     if len(files) > MAX_FILES_PER_REQUEST:
         raise HTTPException(
             status_code=413,

@@ -1,12 +1,12 @@
 import asyncio
 import random
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
 from web_backend.database import get_db, SessionLocal
 from web_backend.db_models import Hospital, FederatedRound
-from web_backend.auth import get_current_hospital
+from web_backend.auth import get_current_hospital, verify_csrf
 
 router = APIRouter()
 
@@ -40,9 +40,11 @@ def _reset_training() -> None:
 
 @router.post("/training/start")
 async def start_training(
+    request: Request,
     hospital: Hospital = Depends(get_current_hospital),
     db: Session = Depends(get_db),
 ):
+    verify_csrf(request)
     if _training_state["active"]:
         return {"status": "already_running", "round": _training_state["round"]}
 
