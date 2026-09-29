@@ -6,14 +6,18 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import { apiFetch } from "@/lib/api";
 
+const MIN_PASSWORD_LENGTH = 8;
+
 export default function SignupPage() {
   const router = useRouter();
   const [form, setForm] = useState({
     name: "",
     email: "",
     password: "",
+    confirmPassword: "",
     location: "",
   });
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -21,16 +25,34 @@ export default function SignupPage() {
     setForm((prev) => ({ ...prev, [field]: value }));
   }
 
+  const passwordsMismatch =
+    form.confirmPassword.length > 0 && form.password !== form.confirmPassword;
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError("");
+
+    if (form.password.length < MIN_PASSWORD_LENGTH) {
+      setError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
+      return;
+    }
+    if (form.password !== form.confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+
     setLoading(true);
     try {
       const hospital = await apiFetch<{ id: number; name: string }>(
         "/api/auth/signup",
         {
           method: "POST",
-          body: JSON.stringify(form),
+          body: JSON.stringify({
+            name: form.name,
+            email: form.email,
+            password: form.password,
+            location: form.location,
+          }),
         },
       );
       // Session lives in an httpOnly cookie now; this is just non-sensitive
@@ -102,15 +124,49 @@ export default function SignupPage() {
             <label className="block text-sm text-zinc-400 mb-1.5">
               Password
             </label>
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                required
+                minLength={MIN_PASSWORD_LENGTH}
+                value={form.password}
+                onChange={(e) => update("password", e.target.value)}
+                className="w-full px-4 py-2.5 pr-16 rounded-lg bg-white/5 border border-white/10 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all"
+                placeholder="••••••••"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((s) => !s)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+                tabIndex={-1}
+              >
+                {showPassword ? "Hide" : "Show"}
+              </button>
+            </div>
+            <p className="mt-1 text-xs text-zinc-600">
+              At least {MIN_PASSWORD_LENGTH} characters.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm text-zinc-400 mb-1.5">
+              Confirm Password
+            </label>
             <input
-              type="password"
+              type={showPassword ? "text" : "password"}
               required
-              minLength={6}
-              value={form.password}
-              onChange={(e) => update("password", e.target.value)}
-              className="w-full px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all"
+              value={form.confirmPassword}
+              onChange={(e) => update("confirmPassword", e.target.value)}
+              className={`w-full px-4 py-2.5 rounded-lg bg-white/5 border text-sm focus:outline-none focus:ring-2 transition-all ${
+                passwordsMismatch
+                  ? "border-rose-500/50 focus:ring-rose-500/50"
+                  : "border-white/10 focus:ring-indigo-500/50"
+              }`}
               placeholder="••••••••"
             />
+            {passwordsMismatch && (
+              <p className="mt-1 text-xs text-rose-400">Passwords do not match.</p>
+            )}
           </div>
 
           <div>
@@ -128,7 +184,7 @@ export default function SignupPage() {
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || passwordsMismatch}
             className="w-full py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-sm font-medium shadow-lg shadow-indigo-500/25 transition-all"
           >
             {loading ? "Creating account..." : "Create Hospital Account"}
