@@ -106,20 +106,45 @@ def enforce_auth_rate_limit(request: Request, bucket: str) -> None:
     attempts.append(now)
 
 
+# OWASP's 2023 minimum for PBKDF2-HMAC-SHA256. The iteration count is
+# encoded into every new hash (django-style "algorithm$iterations$salt$hash")
+# specifically so it can be raised again later without invalidating
+# passwords hashed under the old count — the previous format
+# ("<salt_hex>:<key_hex>") baked 100,000 iterations in implicitly, which
+# meant bumping the constant would have silently broken every existing
+# login. verify_password still accepts that legacy format.
+PBKDF2_ITERATIONS = 600_000
+_LEGACY_PBKDF2_ITERATIONS = 100_000
+
+
 def hash_password(password: str) -> str:
     salt = os.urandom(32)
-    key = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 100000)
-    return salt.hex() + ":" + key.hex()
+    key = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, PBKDF2_ITERATIONS)
+    return f"pbkdf2_sha256${PBKDF2_ITERATIONS}${salt.hex()}${key.hex()}"
 
 
 def verify_password(password: str, stored: str) -> bool:
     try:
-        salt_hex, key_hex = stored.split(":")
+        if stored.startswith("pbkdf2_sha256$"):
+            _, iterations_str, salt_hex, key_hex = stored.split("$")
+            iterations = int(iterations_str)
+        else:
+            salt_hex, key_hex = stored.split(":")
+            iterations = _LEGACY_PBKDF2_ITERATIONS
         salt = bytes.fromhex(salt_hex)
-        key = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 100000)
+        key = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, iterations)
         return hmac.compare_digest(key, bytes.fromhex(key_hex))
     except Exception:
         return False
+
+
+# A verify_password() call against a real hash takes measurable time
+# (hundreds of thousands of PBKDF2 rounds); skipping it entirely when an
+# email isn't registered makes "no such account" respond faster than
+# "wrong password" — a timing side-channel an attacker can use to
+# enumerate which emails have accounts. Hashed once at import so login
+# always pays the same cost whether or not the account exists.
+DUMMY_PASSWORD_HASH = hash_password(secrets.token_urlsafe(32))
 
 
 def create_token(payload: dict) -> str:

@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from web_backend.database import get_db
@@ -13,6 +14,7 @@ from web_backend.auth import (
     set_session_cookies,
     clear_session_cookies,
     verify_csrf,
+    DUMMY_PASSWORD_HASH,
 )
 
 router = APIRouter()
@@ -37,7 +39,15 @@ async def signup(
         location=payload.location,
     )
     db.add(hospital)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Two concurrent signups for the same email can both pass the
+        # existence check above before either commits; the database's
+        # unique constraint on email is the real guard, so a violation
+        # here means someone won the race, not a server error.
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Email already registered")
     db.refresh(hospital)
 
     token = create_token({"hospital_id": hospital.id, "email": hospital.email})
@@ -59,7 +69,14 @@ async def login(
 ):
     enforce_auth_rate_limit(request, "login")
     hospital = db.query(Hospital).filter(Hospital.email == payload.email).first()
-    if not hospital or not verify_password(payload.password, hospital.password_hash):
+    # Always run the (expensive) password check, even for an email that
+    # isn't registered, against a fixed dummy hash — otherwise a missing
+    # account short-circuits and responds measurably faster than a wrong
+    # password does, letting an attacker enumerate registered emails by
+    # timing the login endpoint.
+    hash_to_check = hospital.password_hash if hospital else DUMMY_PASSWORD_HASH
+    password_ok = verify_password(payload.password, hash_to_check)
+    if not hospital or not password_ok:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     token = create_token({"hospital_id": hospital.id, "email": hospital.email})
