@@ -8,8 +8,10 @@ Run with:
 from contextlib import asynccontextmanager
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from web_backend.database import engine, Base, SessionLocal
 from web_backend.db_models import MLModel
@@ -83,6 +85,23 @@ app.add_middleware(
 app.include_router(auth_router.router, prefix="/api/auth", tags=["auth"])
 app.include_router(hospital_router.router, prefix="/api", tags=["hospital"])
 app.include_router(training_router.router, prefix="/api", tags=["training"])
+
+
+@app.exception_handler(RequestValidationError)
+async def readable_validation_error(request: Request, exc: RequestValidationError):
+    """FastAPI's default 422 body is {"detail": [{"loc", "msg", "type"}, ...]}.
+    The frontend (and any other API consumer) expects `detail` to be a
+    plain string to show to the user; left as-is, a validation failure on
+    signup/login renders as the literal text "[object Object]" instead of
+    e.g. "Password too common". Flatten it to the first, most relevant
+    message instead."""
+    first_error = exc.errors()[0]
+    field = first_error["loc"][-1] if first_error["loc"] else "input"
+    message = first_error["msg"]
+    return JSONResponse(
+        status_code=422,
+        content={"detail": f"{field}: {message}"},
+    )
 
 
 @app.get("/api/health")
