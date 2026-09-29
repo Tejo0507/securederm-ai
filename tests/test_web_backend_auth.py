@@ -55,6 +55,43 @@ def _csrf_headers(client) -> dict:
     return {auth_module.CSRF_HEADER_NAME: token} if token else {}
 
 
+class TestPasswordHashing:
+    """Unit tests for the hashing scheme itself, independent of the API."""
+
+    def test_new_hash_round_trips(self):
+        stored = auth_module.hash_password("correcthorse1")
+        assert stored.startswith("pbkdf2_sha256$")
+        assert auth_module.verify_password("correcthorse1", stored)
+        assert not auth_module.verify_password("wrongpassword", stored)
+
+    def test_new_hash_encodes_current_iteration_count(self):
+        stored = auth_module.hash_password("correcthorse1")
+        _, iterations, _, _ = stored.split("$")
+        assert int(iterations) == auth_module.PBKDF2_ITERATIONS
+
+    def test_legacy_hash_format_still_verifies(self):
+        """Hospitals created before the iteration count was encoded into
+        the hash (format "<salt_hex>:<key_hex>", always 100k rounds) must
+        still be able to log in — this exact format is what the 8 seeded
+        hospitals in the real dev database have."""
+        import hashlib
+        import os as _os
+
+        salt = _os.urandom(32)
+        key = hashlib.pbkdf2_hmac(
+            "sha256", b"correcthorse1", salt, auth_module._LEGACY_PBKDF2_ITERATIONS
+        )
+        legacy_stored = salt.hex() + ":" + key.hex()
+        assert auth_module.verify_password("correcthorse1", legacy_stored)
+        assert not auth_module.verify_password("wrongpassword", legacy_stored)
+
+    def test_two_hashes_of_same_password_differ(self):
+        # Salted: identical passwords must not produce identical hashes.
+        a = auth_module.hash_password("correcthorse1")
+        b = auth_module.hash_password("correcthorse1")
+        assert a != b
+
+
 class TestSignupValidation:
     def test_signup_success(self, client):
         resp = _signup(client)
@@ -78,6 +115,21 @@ class TestSignupValidation:
     def test_signup_rejects_short_password(self, client):
         resp = _signup(client, password="short")
         assert resp.status_code == 422
+
+    def test_signup_rejects_common_password(self, client):
+        resp = _signup(client, password="password123")
+        assert resp.status_code == 422
+
+    def test_validation_error_detail_is_a_readable_string(self, client):
+        # Regression test: FastAPI's default 422 body is
+        # {"detail": [{"loc", "msg", "type"}]} — a list, not a string. The
+        # frontend does `new Error(err.detail)`, so an unflattened list
+        # renders as the literal text "[object Object]" to the user.
+        resp = _signup(client, password="short")
+        assert resp.status_code == 422
+        detail = resp.json()["detail"]
+        assert isinstance(detail, str)
+        assert "object Object" not in detail
 
     def test_signup_duplicate_email_rejected(self, client):
         _signup(client, email="dupe@example.com")
@@ -110,6 +162,17 @@ class TestLoginAndAuth:
             json={"email": "wrongpw@example.com", "password": "wrongpassword"},
         )
         assert resp.status_code == 401
+
+    def test_login_nonexistent_email_rejected_identically(self, client):
+        # Both "no such account" and "wrong password" must return the same
+        # status and message — the whole point of always hashing against
+        # DUMMY_PASSWORD_HASH is that an attacker can't tell them apart.
+        resp = client.post(
+            "/api/auth/login",
+            json={"email": "nobody-here@example.com", "password": "whatever123"},
+        )
+        assert resp.status_code == 401
+        assert resp.json()["detail"] == "Invalid credentials"
 
     def test_me_requires_session_cookie(self, client):
         resp = client.get("/api/auth/me")
