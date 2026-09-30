@@ -48,7 +48,6 @@ def _disable_inplace_relu(module: nn.Module) -> None:
 def _patch_resnet_residuals(model: nn.Module) -> None:
     """Monkey-patch ResNet BasicBlock/Bottleneck to avoid inplace += in skip connections."""
     from torchvision.models.resnet import BasicBlock, Bottleneck
-    import torch.nn.functional as F
 
     def _basic_forward(self, x):
         identity = x

@@ -47,35 +47,51 @@ def _seed_models() -> None:
                 model_name="Wound Type Classifier v1",
                 version=1,
                 accuracy=0.72,
-                description="Classifies 10 wound types including burns, surgical wounds, and pressure ulcers. Trained across 2 hospital nodes with differential privacy.",
+                description=(
+                    "Classifies 10 wound types including burns, surgical wounds, and "
+                    "pressure ulcers. Trained across 2 hospital nodes with differential "
+                    "privacy."
+                ),
                 hospital_count=2,
             ),
             MLModel(
                 model_name="Surgical Infection Detector v2",
                 version=2,
                 accuracy=0.81,
-                description="Detects early signs of surgical wound infection. Federated model trained by 5 hospitals with 4,200 annotated images.",
+                description=(
+                    "Detects early signs of surgical wound infection. Federated model "
+                    "trained by 5 hospitals with 4,200 annotated images."
+                ),
                 hospital_count=5,
             ),
             MLModel(
                 model_name="Diabetic Ulcer Severity Model",
                 version=1,
                 accuracy=0.76,
-                description="Grades diabetic foot ulcer severity from stage 1–4. Privacy-preserving training ensures patient data never leaves hospital networks.",
+                description=(
+                    "Grades diabetic foot ulcer severity from stage 1-4. Privacy-preserving "
+                    "training ensures patient data never leaves hospital networks."
+                ),
                 hospital_count=3,
             ),
             MLModel(
                 model_name="Burn Depth Estimator",
                 version=3,
                 accuracy=0.69,
-                description="Estimates burn depth (superficial, partial, full thickness) from wound photographs. Edge-deployable for field triage.",
+                description=(
+                    "Estimates burn depth (superficial, partial, full thickness) from "
+                    "wound photographs. Edge-deployable for field triage."
+                ),
                 hospital_count=4,
             ),
             MLModel(
                 model_name="Pressure Wound Risk Predictor",
                 version=1,
                 accuracy=0.84,
-                description="Predicts pressure wound formation risk based on wound area imaging. Top-performing federated model in the SecureDerm network.",
+                description=(
+                    "Predicts pressure wound formation risk based on wound area imaging. "
+                    "Top-performing federated model in the SecureDerm network."
+                ),
                 hospital_count=8,
             ),
         ]
