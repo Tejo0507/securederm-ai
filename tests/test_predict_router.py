@@ -6,19 +6,16 @@ CI), so these tests monkeypatch model.inference.get_predictor rather than
 depending on it — what's under test here is the endpoint's auth/CSRF/
 input-validation/error-handling behavior, not the model itself (that's
 covered by tests/test_model.py).
+
+DATABASE_URL/PBKDF2_ITERATIONS test isolation is set centrally in
+conftest.py, before this file is ever collected.
 """
 
 import io
-import os
-import tempfile
 
-_TEST_DB_DIR = tempfile.mkdtemp(prefix="securederm_test_")
-os.environ["DATABASE_URL"] = f"sqlite:///{os.path.join(_TEST_DB_DIR, 'test.db')}"
-os.environ.setdefault("PBKDF2_ITERATIONS", "1000")
-
-import pytest  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
-from PIL import Image  # noqa: E402
+import pytest
+from fastapi.testclient import TestClient
+from PIL import Image
 
 from web_backend.main import app  # noqa: E402
 from web_backend import auth as auth_module  # noqa: E402

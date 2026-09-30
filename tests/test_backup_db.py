@@ -1,4 +1,10 @@
-"""Tests for scripts/backup_db.py."""
+"""Tests for scripts/backup_db.py.
+
+DATABASE_URL/PBKDF2_ITERATIONS test isolation is set centrally in
+conftest.py, before this file (or anything it imports) is ever
+collected — see that file for why it has to be centralized rather than
+each test file guarding its own import.
+"""
 
 import sqlite3
 
