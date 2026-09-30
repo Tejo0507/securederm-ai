@@ -31,8 +31,12 @@ datasets/
 *.onnx
 *.tflite
 *.db
+*.db-wal
+*.db-shm
 *.sqlite
 *.sqlite3
+*.sqlite-wal
+*.sqlite-shm
 wound_dataset/
 wound_dataset.zip
 

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Text
+from sqlalchemy import Boolean, Column, Integer, String, Float, DateTime, ForeignKey, Text
 from sqlalchemy.sql import func
 
 from web_backend.database import Base
@@ -13,11 +13,18 @@ class Hospital(Base):
     location = Column(String(200), default="")
     created_at = Column(DateTime, server_default=func.now())
 
+    # ── Email verification ──────────────────────────────────────────
+    email_verified = Column(Boolean, nullable=False, default=False)
+    email_verification_token_hash = Column(String(128), nullable=True)
+    email_verification_expires_at = Column(DateTime, nullable=True)
+
 
 class Dataset(Base):
     __tablename__ = "datasets"
     id = Column(Integer, primary_key=True, index=True)
-    hospital_id = Column(Integer, ForeignKey("hospitals.id"), nullable=False)
+    hospital_id = Column(
+        Integer, ForeignKey("hospitals.id", ondelete="CASCADE"), nullable=False
+    )
     name = Column(String(200), default="")
     dataset_path = Column(String(500), default="")
     image_count = Column(Integer, default=0)
@@ -29,7 +36,9 @@ class MLModel(Base):
     id = Column(Integer, primary_key=True, index=True)
     model_name = Column(String(200), nullable=False)
     version = Column(Integer, default=1)
-    created_by = Column(Integer, ForeignKey("hospitals.id"), nullable=True)
+    created_by = Column(
+        Integer, ForeignKey("hospitals.id", ondelete="SET NULL"), nullable=True
+    )
     accuracy = Column(Float, default=0.0)
     description = Column(Text, default="")
     hospital_count = Column(Integer, default=1)
