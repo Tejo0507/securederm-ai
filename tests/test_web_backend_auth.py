@@ -1,33 +1,19 @@
 """Tests for the web platform backend: auth, authorization, and upload safety.
 
-IMPORTANT: this module points DATABASE_URL at a throwaway sqlite file
-*before* importing anything from web_backend, so these tests never read
-from or write into the real dev/demo securederm.db (the app's startup
-lifespan seeds sample data through its own DB session, not just the
-`get_db` dependency, so a dependency_overrides-only approach would still
-leak into the real database — the env var redirects both).
+DATABASE_URL/PBKDF2_ITERATIONS test isolation is set centrally in
+conftest.py, before this file (or anything it imports) is ever
+collected — see that file for why it has to be centralized rather than
+each test file guarding its own import.
 """
 
 import io
-import os
-import tempfile
 
-_TEST_DB_DIR = tempfile.mkdtemp(prefix="securederm_test_")
-os.environ["DATABASE_URL"] = f"sqlite:///{os.path.join(_TEST_DB_DIR, 'test.db')}"
-# The production default (600,000 PBKDF2 rounds) is deliberately slow —
-# tests care about hash/verify correctness, not paying that real-world
-# cost dozens of times per run. hash/verify_password() take the iteration
-# count from the stored hash string itself, so this doesn't weaken what
-# TestPasswordHashing actually verifies (round-tripping, legacy-format
-# compatibility, salting) — only how long paying for it takes here.
-os.environ.setdefault("PBKDF2_ITERATIONS", "1000")
+import pytest
+from fastapi.testclient import TestClient
+from PIL import Image
 
-import pytest  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
-from PIL import Image  # noqa: E402
-
-from web_backend.main import app  # noqa: E402
-from web_backend import auth as auth_module  # noqa: E402
+from web_backend.main import app
+from web_backend import auth as auth_module
 
 
 @pytest.fixture(autouse=True)
