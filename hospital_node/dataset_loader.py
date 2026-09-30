@@ -8,7 +8,6 @@ Supports two dataset formats:
 Also provides utilities for train/val splitting and federated partitioning.
 """
 
-import os
 from pathlib import Path
 from typing import Optional
 
@@ -17,7 +16,7 @@ from PIL import Image
 from torch.utils.data import Dataset, Subset
 from torchvision import transforms
 
-from config.settings import IMAGE_SIZE, CLASS_LABELS, SPLIT_SEED
+from config.settings import IMAGE_SIZE, SPLIT_SEED
 
 # Default label mapping — subfolder name → class index
 LABEL_MAP = {

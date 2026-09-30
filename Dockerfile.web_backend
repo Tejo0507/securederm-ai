@@ -1,0 +1,26 @@
+# ── Web Platform Backend ─────────────────────────────────────────────
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY config/ config/
+COPY model/ model/
+COPY hospital_node/ hospital_node/
+COPY web_backend/ web_backend/
+COPY __init__.py .
+
+# Persisted via volumes in docker-compose.yml: the sqlite database,
+# uploaded dataset images, and model checkpoints all need to survive a
+# container restart/rebuild.
+RUN mkdir -p datasets/uploads checkpoints logs
+
+EXPOSE 8001
+
+ENV HOST=0.0.0.0
+ENV PORT=8001
+ENV ENV=production
+
+CMD ["python", "-m", "web_backend.main"]

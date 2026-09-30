@@ -6,13 +6,12 @@ Usage:
 """
 
 import json
-from pathlib import Path
 
 import matplotlib
-matplotlib.use("Agg")  # headless backend
-import matplotlib.pyplot as plt
+matplotlib.use("Agg")  # headless backend — must precede importing pyplot
+import matplotlib.pyplot as plt  # noqa: E402
 
-from config.settings import LOGS_DIR
+from config.settings import LOGS_DIR  # noqa: E402
 
 
 def main():

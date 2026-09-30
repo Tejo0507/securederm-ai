@@ -6,7 +6,6 @@ Usage:
 """
 
 import torch
-import torch.nn as nn
 from torch.utils.data import DataLoader
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 
@@ -14,8 +13,6 @@ from config.settings import (
     KAGGLE_DATASET_DIR,
     CHECKPOINTS_DIR,
     BATCH_SIZE,
-    NUM_CLASSES,
-    CLASS_LABELS,
 )
 from hospital_node.dataset_loader import KaggleWoundDataset, split_train_val
 from hospital_node.privacy_layer import make_model_private
