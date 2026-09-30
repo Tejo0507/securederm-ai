@@ -10,32 +10,31 @@ from web_backend.auth import get_current_hospital, verify_csrf
 
 router = APIRouter()
 
-# In-memory simulation state
-_training_state: dict = {
-    "active": False,
-    "round": 0,
-    "total_rounds": 5,
-    "loss": 0.0,
-    "epoch": 0,
-    "samples": 0,
-    "logs": [],
-    "metrics": [],
-}
+
+def _fresh_state() -> dict:
+    return {
+        "active": False,
+        "round": 0,
+        "total_rounds": 5,
+        "loss": 0.0,
+        "epoch": 0,
+        "samples": 0,
+        "logs": [],
+        "metrics": [],
+    }
 
 
-def _reset_training() -> None:
-    _training_state.update(
-        {
-            "active": False,
-            "round": 0,
-            "total_rounds": 5,
-            "loss": 0.0,
-            "epoch": 0,
-            "samples": 0,
-            "logs": [],
-            "metrics": [],
-        }
-    )
+# In-memory simulation state, keyed by hospital_id. This used to be a
+# single shared dict, which meant every hospital's "training status" was
+# actually whichever hospital most recently clicked Start — including
+# that hospital's name, showing up unauthenticated in another tenant's
+# dashboard (or to a client with no session at all: /training/status had
+# no auth dependency).
+_training_state: dict[int, dict] = {}
+
+
+def _state_for(hospital_id: int) -> dict:
+    return _training_state.setdefault(hospital_id, _fresh_state())
 
 
 @router.post("/training/start")
@@ -45,60 +44,64 @@ async def start_training(
     db: Session = Depends(get_db),
 ):
     verify_csrf(request)
-    if _training_state["active"]:
-        return {"status": "already_running", "round": _training_state["round"]}
+    state = _state_for(hospital.id)
+    if state["active"]:
+        return {"status": "already_running", "round": state["round"]}
 
-    _reset_training()
-    _training_state["active"] = True
+    _training_state[hospital.id] = _fresh_state()
+    _training_state[hospital.id]["active"] = True
 
-    asyncio.create_task(_simulate_training(hospital.name))
+    asyncio.create_task(_simulate_training(hospital.id, hospital.name))
 
     return {"status": "started", "total_rounds": 5}
 
 
-async def _simulate_training(hospital_name: str) -> None:
+async def _simulate_training(hospital_id: int, hospital_name: str) -> None:
     """Simulate federated training rounds with realistic loss decay."""
+    state = _training_state[hospital_id]
     base_loss = 2.5 + random.uniform(-0.2, 0.2)
     partner = "City General Hospital" if "General" not in hospital_name else "Metro Medical Center"
 
     for round_num in range(1, 6):
-        _training_state["round"] = round_num
-        _training_state["epoch"] = 1
-        _training_state["samples"] = random.randint(800, 1200)
+        state["round"] = round_num
+        state["epoch"] = 1
+        state["samples"] = random.randint(800, 1200)
 
-        _training_state["logs"].append(
+        state["logs"].append(
             f"[Round {round_num}] {hospital_name} training locally..."
         )
         await asyncio.sleep(2)
 
         loss_a = base_loss * (0.82 ** round_num) + random.uniform(-0.03, 0.03)
-        _training_state["loss"] = round(loss_a, 4)
-        _training_state["logs"].append(
+        state["loss"] = round(loss_a, 4)
+        state["logs"].append(
             f"[Round {round_num}] {hospital_name} — local loss: {loss_a:.4f}"
         )
         await asyncio.sleep(1)
 
-        _training_state["logs"].append(
+        state["logs"].append(
             f"[Round {round_num}] {hospital_name} uploading encrypted gradients"
         )
         await asyncio.sleep(1)
 
         loss_b = base_loss * (0.82 ** round_num) + random.uniform(-0.03, 0.03)
-        _training_state["logs"].append(
+        state["logs"].append(
             f"[Round {round_num}] {partner} uploading encrypted gradients"
         )
         await asyncio.sleep(1)
 
         avg_loss = round((loss_a + loss_b) / 2, 4)
-        _training_state["logs"].append(
+        state["logs"].append(
             f"[Round {round_num}] Aggregator merging updates — Avg Loss: {avg_loss}"
         )
 
-        _training_state["metrics"].append(
+        state["metrics"].append(
             {"round": round_num, "avg_loss": avg_loss, "nodes": 2}
         )
 
-        # Persist to DB
+        # Persist to DB — this table represents the shared federated
+        # network history, unlike `state`, which is this hospital's own
+        # live simulation and must not leak to anyone else.
         try:
             db = SessionLocal()
             fr = FederatedRound(
@@ -114,29 +117,31 @@ async def _simulate_training(hospital_name: str) -> None:
 
         await asyncio.sleep(1)
 
-    _training_state["active"] = False
-    _training_state["logs"].append("✓ Federated training complete!")
+    state["active"] = False
+    state["logs"].append("✓ Federated training complete!")
 
 
 @router.get("/training/status")
-async def training_status():
+async def training_status(hospital: Hospital = Depends(get_current_hospital)):
+    state = _state_for(hospital.id)
     return {
-        "active": _training_state["active"],
-        "round": _training_state["round"],
-        "total_rounds": _training_state["total_rounds"],
-        "loss": _training_state["loss"],
-        "epoch": _training_state["epoch"],
-        "samples": _training_state["samples"],
-        "logs": _training_state["logs"][-30:],
-        "metrics": _training_state["metrics"],
+        "active": state["active"],
+        "round": state["round"],
+        "total_rounds": state["total_rounds"],
+        "loss": state["loss"],
+        "epoch": state["epoch"],
+        "samples": state["samples"],
+        "logs": state["logs"][-30:],
+        "metrics": state["metrics"],
     }
 
 
 @router.get("/training/metrics")
 async def training_metrics(db: Session = Depends(get_db)):
-    if _training_state["metrics"]:
-        return {"metrics": _training_state["metrics"]}
-
+    # Always the persisted network-wide history (FederatedRound), not the
+    # in-memory `_training_state` — that's per-hospital now, and "recent
+    # rounds across the network" is supposed to be shared, unlike a live
+    # per-hospital training status.
     rounds = db.query(FederatedRound).order_by(FederatedRound.round_number).all()
     return {
         "metrics": [

@@ -1,0 +1,10 @@
+# GitGuardian secret-scanning config.
+#
+# tests/ is excluded: every "password" in this test suite is a fixture
+# constant used only against throwaway, per-test-run SQLite databases
+# (see tests/conftest.py) — never a real credential, nothing to rotate.
+# GitGuardian's generic-password detector flags these on string content
+# alone (e.g. "supersecret1" contains the substring "secret"), which is
+# a real false-positive pattern for a test suite, not a leak.
+paths-ignore:
+  - "tests/**"
