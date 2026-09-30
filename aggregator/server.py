@@ -29,7 +29,6 @@ from pydantic import BaseModel, field_validator
 from aggregator.fedavg import federated_average
 from config.settings import (
     AGGREGATOR_PORT,
-    NUM_CLASSES,
     FEDERATED_ROUNDS,
 )
 from model.architecture import build_model

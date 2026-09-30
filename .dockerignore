@@ -1,0 +1,35 @@
+# Without this, the entire repo (venv, node_modules, the 90MB wound
+# dataset zip, the sqlite database) gets sent to the Docker daemon as
+# build context on every build, even though the individual Dockerfiles
+# only COPY specific directories into the image. Slow, and it means
+# securederm.db briefly leaves the host even when nothing ever COPYs it.
+
+.git/
+.github/
+
+venv/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+web/node_modules/
+web/.next/
+web/out/
+
+datasets/
+checkpoints/
+logs/
+backups/
+wound_dataset/
+wound_dataset.zip
+*.db
+*.db-wal
+*.db-shm
+
+.env
+.env.*
+!.env.example
+
+docs/
+README.md

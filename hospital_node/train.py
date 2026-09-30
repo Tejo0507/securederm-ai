@@ -7,7 +7,7 @@ returns updated model weights (never raw data).
 
 import copy
 import logging
-from typing import Optional, Union
+from typing import Optional
 
 import torch
 import torch.nn as nn

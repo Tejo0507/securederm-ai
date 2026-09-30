@@ -20,7 +20,6 @@ import requests
 from config.settings import (
     AGGREGATOR_URL,
     FEDERATED_ROUNDS,
-    KAGGLE_DATASET_DIR,
     CHECKPOINTS_DIR,
     LOGS_DIR,
     USE_DIFFERENTIAL_PRIVACY,
@@ -64,7 +63,9 @@ def save_round_metrics(url: str) -> list[dict]:
 
 def save_global_model(url: str) -> bool:
     """Download final global model and save to checkpoints."""
-    import base64, io, torch
+    import base64
+    import io
+    import torch
     try:
         resp = requests.get(f"{url}/model/latest", timeout=60)
         data = resp.json()
@@ -93,16 +94,16 @@ def print_final_summary() -> None:
     print("\n" + "=" * 50)
     print("  SecureDerm AI Demo Complete")
     print("=" * 50)
-    print(f"  Hospitals participating: 2")
-    print(f"  Dataset: Kaggle wound classification dataset")
+    print("  Hospitals participating: 2")
+    print("  Dataset: Kaggle wound classification dataset")
     print(f"  Differential Privacy: {dp_status}")
     print(f"  Federated Rounds: {FEDERATED_ROUNDS}")
     print()
-    print(f"  Training curve saved -> logs/federated_training.png")
-    print(f"  Evaluation metrics printed above")
-    print(f"  Prediction demo completed")
+    print("  Training curve saved -> logs/federated_training.png")
+    print("  Evaluation metrics printed above")
+    print("  Prediction demo completed")
     print()
-    print(f"  System ready for mobile deployment")
+    print("  System ready for mobile deployment")
     print("=" * 50 + "\n")
 
 

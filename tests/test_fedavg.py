@@ -1,6 +1,5 @@
 """Tests for the FedAvg aggregation algorithm."""
 
-import copy
 from collections import OrderedDict
 
 import pytest
