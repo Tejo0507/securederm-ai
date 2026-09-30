@@ -310,6 +310,29 @@ class TestDatasetUpload:
         assert resp.status_code == 200
         assert resp.json()["uploaded"] == 1
 
+    def test_reuploading_same_filename_does_not_inflate_the_count(self, client):
+        # Regression test: image_count used to be incremented by however
+        # many files were accepted in a request, so uploading a file whose
+        # name collides with one already on disk (it overwrites, not
+        # adds) would count it twice — total_images could climb past the
+        # actual number of files sitting in the hospital's directory.
+        headers = self._login_and_headers(client, email="reupload@example.com")
+
+        first = client.post(
+            "/api/datasets/upload",
+            headers=headers,
+            files={"files": ("dup.png", self._real_png_bytes(), "image/png")},
+        )
+        assert first.json()["total_images"] == 1
+
+        second = client.post(
+            "/api/datasets/upload",
+            headers=headers,
+            files={"files": ("dup.png", self._real_png_bytes(), "image/png")},
+        )
+        assert second.json()["uploaded"] == 1  # the request did accept a file...
+        assert second.json()["total_images"] == 1  # ...but it overwrote, not added
+
     def test_upload_requires_auth(self, client):
         resp = client.post(
             "/api/datasets/upload",
