@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback, FormEvent } from "react";
+import { useEffect, useState, useRef, useCallback, FormEvent, ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { motion } from "framer-motion";
@@ -18,7 +18,15 @@ import { apiFetch } from "@/lib/api";
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
-type Tab = "overview" | "data" | "training" | "network";
+type Tab = "overview" | "data" | "predict" | "training" | "network";
+
+interface PredictionResult {
+  predicted_class: string;
+  confidence: number;
+  is_unknown: boolean;
+  message: string;
+  class_probabilities: Record<string, number>;
+}
 
 interface Metric {
   round: number;
@@ -83,6 +91,7 @@ export default function DashboardPage() {
   const tabs: { key: Tab; label: string }[] = [
     { key: "overview", label: "Overview" },
     { key: "data", label: "Datasets" },
+    { key: "predict", label: "Predict" },
     { key: "training", label: "Training" },
     { key: "network", label: "Network" },
   ];
@@ -137,6 +146,7 @@ export default function DashboardPage() {
       <main className="max-w-7xl mx-auto px-6 py-8">
         {tab === "overview" && <OverviewTab hospital={hospital} setTab={setTab} />}
         {tab === "data" && <DataTab />}
+        {tab === "predict" && <PredictTab />}
         {tab === "training" && <TrainingTab />}
         {tab === "network" && <NetworkTab />}
       </main>
@@ -195,6 +205,12 @@ function OverviewTab({ hospital, setTab }: { hospital: HospitalInfo; setTab: (t:
             className="px-4 py-2 text-sm rounded-lg bg-indigo-600/20 border border-indigo-500/30 text-indigo-300 hover:bg-indigo-600/30 transition-colors"
           >
             Upload Dataset
+          </button>
+          <button
+            onClick={() => setTab("predict")}
+            className="px-4 py-2 text-sm rounded-lg bg-emerald-600/20 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-600/30 transition-colors"
+          >
+            Diagnose Wound
           </button>
           <button
             onClick={() => setTab("training")}
@@ -327,6 +343,145 @@ function DataTab() {
           </div>
         )}
       </div>
+    </motion.div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  PREDICT TAB                                                        */
+/* ------------------------------------------------------------------ */
+function PredictTab() {
+  const [preview, setPreview] = useState<string | null>(null);
+  const [predicting, setPredicting] = useState(false);
+  const [result, setResult] = useState<PredictionResult | null>(null);
+  const [error, setError] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    setResult(null);
+    setError("");
+    if (preview) URL.revokeObjectURL(preview);
+    setPreview(file ? URL.createObjectURL(file) : null);
+  }
+
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const file = fileInputRef.current?.files?.[0];
+    if (!file) {
+      setError("Please select a wound image first.");
+      return;
+    }
+
+    setPredicting(true);
+    setError("");
+    setResult(null);
+
+    const fd = new FormData();
+    fd.append("file", file);
+
+    try {
+      const data = await apiFetch<PredictionResult>("/api/predict", {
+        method: "POST",
+        body: fd,
+      });
+      setResult(data);
+    } catch (err: unknown) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Prediction failed. Is a trained model available?",
+      );
+    } finally {
+      setPredicting(false);
+    }
+  }
+
+  const sortedProbabilities = result
+    ? Object.entries(result.class_probabilities).sort((a, b) => b[1] - a[1])
+    : [];
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      className="space-y-8"
+    >
+      <div className="glass rounded-xl p-6">
+        <h3 className="font-semibold mb-4">Diagnose a Wound Image</h3>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="flex flex-wrap gap-4 items-end">
+            <div className="flex-1 min-w-[200px]">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleFileChange}
+                className="w-full text-sm text-zinc-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-emerald-600/20 file:text-emerald-300 hover:file:bg-emerald-600/30 file:cursor-pointer"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={predicting}
+              className="px-6 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-sm font-medium transition-all"
+            >
+              {predicting ? "Analyzing..." : "Analyze"}
+            </button>
+          </div>
+
+          {preview && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={preview}
+              alt="Selected wound"
+              className="max-h-64 rounded-lg border border-white/10 object-contain"
+            />
+          )}
+
+          {error && (
+            <p className="text-sm text-rose-400">{error}</p>
+          )}
+        </form>
+      </div>
+
+      {result && (
+        <div className="glass rounded-xl p-6 space-y-5">
+          <div
+            className={`rounded-lg px-4 py-3 border ${
+              result.is_unknown
+                ? "bg-amber-400/10 border-amber-400/30 text-amber-300"
+                : "bg-emerald-400/10 border-emerald-400/30 text-emerald-300"
+            }`}
+          >
+            <div className="text-sm font-medium">
+              {result.is_unknown ? "Unrecognized pattern" : result.predicted_class}
+            </div>
+            <div className="text-xs mt-1 opacity-80">{result.message}</div>
+          </div>
+
+          <div>
+            <h4 className="text-xs text-zinc-500 uppercase tracking-wider mb-3">
+              Class Probabilities
+            </h4>
+            <div className="space-y-2">
+              {sortedProbabilities.map(([className, prob]) => (
+                <div key={className}>
+                  <div className="flex justify-between text-xs text-zinc-400 mb-1">
+                    <span>{className}</span>
+                    <span>{(prob * 100).toFixed(1)}%</span>
+                  </div>
+                  <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full"
+                      style={{ width: `${prob * 100}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </motion.div>
   );
 }
