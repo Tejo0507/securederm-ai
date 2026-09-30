@@ -20,6 +20,7 @@ export default function SignupPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [sentTo, setSentTo] = useState<string | null>(null);
 
   function update(field: string, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -43,27 +44,57 @@ export default function SignupPage() {
 
     setLoading(true);
     try {
-      const hospital = await apiFetch<{ id: number; name: string }>(
-        "/api/auth/signup",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            name: form.name,
-            email: form.email,
-            password: form.password,
-            location: form.location,
-          }),
-        },
-      );
-      // Session lives in an httpOnly cookie now; this is just non-sensitive
-      // display data cached for the dashboard's first paint.
-      localStorage.setItem("hospital", JSON.stringify(hospital));
-      router.push("/dashboard");
+      const result = await apiFetch<{
+        status: string;
+        email: string;
+        dev_verification_token: string | null;
+      }>("/api/auth/signup", {
+        method: "POST",
+        body: JSON.stringify({
+          name: form.name,
+          email: form.email,
+          password: form.password,
+          location: form.location,
+        }),
+      });
+
+      if (result.dev_verification_token) {
+        // No SMTP configured on the backend (local dev) — skip straight to
+        // the verification page instead of making the demo depend on a
+        // real inbox.
+        router.push(`/verify-email?token=${encodeURIComponent(result.dev_verification_token)}`);
+        return;
+      }
+      setSentTo(result.email);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Signup failed");
     } finally {
       setLoading(false);
     }
+  }
+
+  if (sentTo) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-6">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="w-full max-w-md text-center glass rounded-2xl p-8"
+        >
+          <h1 className="text-xl font-semibold mb-2">Check your inbox</h1>
+          <p className="text-sm text-zinc-400">
+            We sent a verification link to <span className="text-zinc-200">{sentTo}</span>.
+            Open it to activate your hospital account.
+          </p>
+          <Link
+            href="/login"
+            className="inline-block mt-6 text-sm text-indigo-400 hover:text-indigo-300 transition-colors"
+          >
+            Back to sign in
+          </Link>
+        </motion.div>
+      </div>
+    );
   }
 
   return (

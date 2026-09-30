@@ -4,7 +4,7 @@ import { useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, ApiError } from "@/lib/api";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -13,10 +13,13 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [resendState, setResendState] = useState<"idle" | "sending" | "sent">("idle");
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError("");
+    setNeedsVerification(false);
     setLoading(true);
     try {
       const hospital = await apiFetch<{ id: number; name: string }>(
@@ -31,9 +34,29 @@ export default function LoginPage() {
       localStorage.setItem("hospital", JSON.stringify(hospital));
       router.push("/dashboard");
     } catch (err: unknown) {
+      if (err instanceof ApiError && err.status === 403) {
+        setNeedsVerification(true);
+      }
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleResend() {
+    setResendState("sending");
+    try {
+      const result = await apiFetch<{ dev_verification_token: string | null }>(
+        "/api/auth/resend-verification",
+        { method: "POST", body: JSON.stringify({ email }) },
+      );
+      if (result.dev_verification_token) {
+        router.push(`/verify-email?token=${encodeURIComponent(result.dev_verification_token)}`);
+        return;
+      }
+      setResendState("sent");
+    } catch {
+      setResendState("idle");
     }
   }
 
@@ -60,8 +83,22 @@ export default function LoginPage() {
           className="glass rounded-2xl p-8 space-y-5"
         >
           {error && (
-            <div className="text-sm text-rose-400 bg-rose-400/10 border border-rose-400/20 rounded-lg px-4 py-2">
-              {error}
+            <div className="text-sm text-rose-400 bg-rose-400/10 border border-rose-400/20 rounded-lg px-4 py-2 space-y-2">
+              <p>{error}</p>
+              {needsVerification && (
+                <button
+                  type="button"
+                  onClick={handleResend}
+                  disabled={resendState !== "idle"}
+                  className="text-xs font-medium text-indigo-400 hover:text-indigo-300 disabled:opacity-50 transition-colors"
+                >
+                  {resendState === "sending"
+                    ? "Sending..."
+                    : resendState === "sent"
+                      ? "Verification email sent"
+                      : "Resend verification email"}
+                </button>
+              )}
             </div>
           )}
 
