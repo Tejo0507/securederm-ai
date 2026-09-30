@@ -22,7 +22,8 @@ from datetime import datetime, timezone
 
 import torch
 import uvicorn
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException, Header, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, field_validator
 
 from aggregator.fedavg import federated_average
@@ -50,6 +51,12 @@ round_metrics: list[dict] = []               # per-round metrics history
 # Minimum nodes required before aggregation
 MIN_NODES_FOR_AGGREGATION = 2
 
+# A ResNet18 state_dict is ~45 MB raw; base64 adds ~33% overhead. This
+# caps how much a single /training/update request can make the server
+# buffer in memory before validation even starts, so a hostile or just
+# broken client can't hand it an arbitrarily large body as a cheap DoS.
+MAX_TRAINING_UPDATE_BYTES = 200 * 1024 * 1024
+
 
 # ── Lifespan ─────────────────────────────────────────────────────────────
 @asynccontextmanager
@@ -65,6 +72,26 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+
+@app.middleware("http")
+async def _body_size_limit(request: Request, call_next):
+    content_length = request.headers.get("content-length")
+    if (
+        content_length
+        and content_length.isdigit()
+        and int(content_length) > MAX_TRAINING_UPDATE_BYTES
+    ):
+        return JSONResponse(status_code=413, content={"detail": "Request body too large."})
+    return await call_next(request)
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request: Request, exc: Exception):
+    """Never let a raw traceback reach the client — log it server-side
+    and return a generic message instead."""
+    logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=500, content={"detail": "Internal server error."})
 
 
 # ── Request / Response Schemas ───────────────────────────────────────────
