@@ -94,3 +94,24 @@ def run_migrations() -> None:
             conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {column} {ddl_type}")
             if backfill_sql:
                 conn.exec_driver_sql(backfill_sql)
+
+        # Foreign-key / lookup columns that were queried on (Dataset.hospital_id
+        # in list_datasets, MLModel.created_by, Hospital.email_verification_token_hash
+        # in verify-email) but never indexed — fine at today's row counts, a full
+        # table scan waiting to happen once there's real data. CREATE INDEX
+        # IF NOT EXISTS is natively idempotent, unlike ALTER TABLE ADD COLUMN.
+        index_migrations = [
+            ("ix_datasets_hospital_id", "datasets", "hospital_id"),
+            ("ix_ml_models_created_by", "ml_models", "created_by"),
+            (
+                "ix_hospitals_email_verification_token_hash",
+                "hospitals",
+                "email_verification_token_hash",
+            ),
+        ]
+        for index_name, table, column in index_migrations:
+            if table not in existing_tables:
+                continue
+            conn.exec_driver_sql(
+                f"CREATE INDEX IF NOT EXISTS {index_name} ON {table} ({column})"
+            )
