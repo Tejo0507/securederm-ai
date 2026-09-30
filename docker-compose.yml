@@ -10,7 +10,6 @@ services:
     environment:
       - AGGREGATOR_HOST=0.0.0.0
       - AGGREGATOR_PORT=8000
-      - JWT_SECRET=${JWT_SECRET:-change_me}
 
   hospital_a:
     build:
@@ -37,3 +36,30 @@ services:
     volumes:
       - ./datasets/hospital_B:/app/datasets/hospital_B
     command: ["--node", "hospital_B", "--rounds", "5"]
+
+  web_backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.web_backend
+    ports:
+      - "8001:8001"
+    environment:
+      # JWT_SECRET actually belongs here: web_backend is the only service
+      # that reads it (the aggregator authenticates nodes via its own
+      # per-registration tokens, not JWTs) — it was wired to the wrong
+      # service before this file containerized web_backend at all.
+      - JWT_SECRET=${JWT_SECRET:-change_me}
+      - DATABASE_URL=${DATABASE_URL:-sqlite:////app/securederm.db}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SMTP_FROM_ADDRESS=${SMTP_FROM_ADDRESS:-}
+    volumes:
+      # Bind-mounted (not a named volume) so `python -m scripts.backup_db`
+      # on the host can see the same file the container is writing to.
+      - ./securederm.db:/app/securederm.db
+      - ./datasets/uploads:/app/datasets/uploads
+      - ./checkpoints:/app/checkpoints
