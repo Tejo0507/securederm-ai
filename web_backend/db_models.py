@@ -15,7 +15,7 @@ class Hospital(Base):
 
     # ── Email verification ──────────────────────────────────────────
     email_verified = Column(Boolean, nullable=False, default=False)
-    email_verification_token_hash = Column(String(128), nullable=True)
+    email_verification_token_hash = Column(String(128), nullable=True, index=True)
     email_verification_expires_at = Column(DateTime, nullable=True)
 
 
@@ -23,7 +23,7 @@ class Dataset(Base):
     __tablename__ = "datasets"
     id = Column(Integer, primary_key=True, index=True)
     hospital_id = Column(
-        Integer, ForeignKey("hospitals.id", ondelete="CASCADE"), nullable=False
+        Integer, ForeignKey("hospitals.id", ondelete="CASCADE"), nullable=False, index=True
     )
     name = Column(String(200), default="")
     dataset_path = Column(String(500), default="")
@@ -37,7 +37,7 @@ class MLModel(Base):
     model_name = Column(String(200), nullable=False)
     version = Column(Integer, default=1)
     created_by = Column(
-        Integer, ForeignKey("hospitals.id", ondelete="SET NULL"), nullable=True
+        Integer, ForeignKey("hospitals.id", ondelete="SET NULL"), nullable=True, index=True
     )
     accuracy = Column(Float, default=0.0)
     description = Column(Text, default="")
