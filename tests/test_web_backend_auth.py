@@ -335,3 +335,38 @@ class TestDatasetUpload:
         )
         assert resp.status_code == 200
         assert resp.json()["uploaded"] == 1
+
+
+class TestListEndpointPagination:
+    def test_hospitals_default_and_capped_page_size(self, client):
+        for i in range(5):
+            _signup(client, email=f"pageuser{i}@example.com")
+
+        default_page = client.get("/api/hospitals")
+        assert default_page.status_code == 200
+        assert len(default_page.json()) >= 5  # default limit (50) comfortably covers this
+
+        small_page = client.get("/api/hospitals?limit=2")
+        assert small_page.status_code == 200
+        assert len(small_page.json()) == 2
+
+    def test_hospitals_offset_moves_the_window(self, client):
+        for i in range(5):
+            _signup(client, email=f"offsetuser{i}@example.com")
+
+        page1 = client.get("/api/hospitals?limit=2&offset=0").json()
+        page2 = client.get("/api/hospitals?limit=2&offset=2").json()
+        assert [h["id"] for h in page1] != [h["id"] for h in page2]
+
+    def test_hospitals_rejects_page_size_over_the_cap(self, client):
+        resp = client.get("/api/hospitals?limit=1000")
+        assert resp.status_code == 422
+
+    def test_hospitals_rejects_negative_offset(self, client):
+        resp = client.get("/api/hospitals?offset=-1")
+        assert resp.status_code == 422
+
+    def test_models_respects_limit(self, client):
+        resp = client.get("/api/models?limit=1")
+        assert resp.status_code == 200
+        assert len(resp.json()) <= 1
