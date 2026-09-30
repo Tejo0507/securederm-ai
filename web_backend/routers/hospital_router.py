@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
@@ -8,7 +9,11 @@ from web_backend.db_models import Hospital, Dataset, MLModel
 from web_backend.auth import get_current_hospital, verify_csrf
 from web_backend.image_validation import MAX_FILE_SIZE_BYTES, is_genuine_image
 
-UPLOAD_DIR = Path(__file__).resolve().parent.parent.parent / "datasets" / "uploads"
+# Overridable so tests can point uploads at a throwaway directory instead
+# of writing real files into the project's own datasets/uploads/ on every
+# run — the same isolation problem DATABASE_URL had before it was fixed.
+_DEFAULT_UPLOAD_DIR = Path(__file__).resolve().parent.parent.parent / "datasets" / "uploads"
+UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", str(_DEFAULT_UPLOAD_DIR)))
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_FILES_PER_REQUEST = 100
@@ -54,15 +59,24 @@ async def upload_dataset(
             out.write(content)
         saved += 1
 
+    # Recomputed from what's actually on disk rather than incremented by
+    # `saved` — a file whose name collides with one already uploaded
+    # (a re-upload, or just a repeated filename across two batches)
+    # overwrites the existing file, so incrementing by `saved` would
+    # count it twice: image_count would climb past the real number of
+    # files in the directory. This also self-heals if the two ever
+    # drifted apart for any other reason.
+    actual_count = sum(1 for p in hospital_dir.iterdir() if p.is_file())
+
     ds = db.query(Dataset).filter(Dataset.hospital_id == hospital.id).first()
     if ds:
-        ds.image_count += saved
+        ds.image_count = actual_count
     else:
         ds = Dataset(
             hospital_id=hospital.id,
             name=f"{hospital.name} Dataset",
             dataset_path=str(hospital_dir),
-            image_count=saved,
+            image_count=actual_count,
         )
         db.add(ds)
     db.commit()

@@ -18,6 +18,14 @@ PBKDF2_ITERATIONS is dropped here too for the same reason it's dropped
 in the files that used to set it individually: the production default
 (600,000 rounds) is deliberately slow, and tests care about hash/verify
 correctness, not paying that real-world cost on every signup.
+
+UPLOAD_DIR has the exact same hazard as DATABASE_URL did: it's a
+module-level constant resolved at import time in
+web_backend.routers.hospital_router, and was hardcoded to the project's
+real datasets/uploads/ directory with no override at all — confirmed by
+finding dozens of test-fixture files (wound.png, evil.png under
+hospital IDs that only exist from test runs) actually sitting in that
+real directory on disk. Centralizing it here fixes it the same way.
 """
 
 import os
@@ -26,3 +34,4 @@ import tempfile
 _TEST_DB_DIR = tempfile.mkdtemp(prefix="securederm_test_")
 os.environ["DATABASE_URL"] = f"sqlite:///{os.path.join(_TEST_DB_DIR, 'test.db')}"
 os.environ.setdefault("PBKDF2_ITERATIONS", "1000")
+os.environ["UPLOAD_DIR"] = tempfile.mkdtemp(prefix="securederm_test_uploads_")
