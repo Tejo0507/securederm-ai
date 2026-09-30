@@ -39,6 +39,7 @@ datasets/
 *.sqlite-shm
 wound_dataset/
 wound_dataset.zip
+backups/
 
 # Secrets
 .env
