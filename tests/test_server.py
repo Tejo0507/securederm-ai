@@ -84,6 +84,24 @@ class TestServerEndpoints:
         assert resp.status_code == 400
 
 
+class TestBodySizeLimit:
+    def test_oversized_request_body_rejected(self, client, monkeypatch):
+        # Send an actual 200 MB body just to exercise this would make the
+        # test itself slow and memory-heavy for no extra coverage — lower
+        # the cap instead and confirm a body past *that* threshold is
+        # rejected before it's ever handed to the route.
+        import aggregator.server as server_module
+
+        monkeypatch.setattr(server_module, "MAX_TRAINING_UPDATE_BYTES", 100)
+        resp = client.post("/training/update", json={
+            "hospital_id": "x" * 200,
+            "model_weights_b64": "",
+            "num_samples": 10,
+            "training_loss": 0.5,
+        }, headers={"X-Node-Token": "irrelevant"})
+        assert resp.status_code == 413
+
+
 class TestNodeRegistrationHijack:
     def test_cannot_reregister_without_existing_token(self, client):
         first = client.post("/node/register", json={

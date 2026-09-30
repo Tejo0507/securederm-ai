@@ -14,6 +14,13 @@ import tempfile
 
 _TEST_DB_DIR = tempfile.mkdtemp(prefix="securederm_test_")
 os.environ["DATABASE_URL"] = f"sqlite:///{os.path.join(_TEST_DB_DIR, 'test.db')}"
+# The production default (600,000 PBKDF2 rounds) is deliberately slow —
+# tests care about hash/verify correctness, not paying that real-world
+# cost dozens of times per run. hash/verify_password() take the iteration
+# count from the stored hash string itself, so this doesn't weaken what
+# TestPasswordHashing actually verifies (round-tripping, legacy-format
+# compatibility, salting) — only how long paying for it takes here.
+os.environ.setdefault("PBKDF2_ITERATIONS", "1000")
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -45,6 +52,17 @@ def _signup(client, email="hospital@example.com", password="supersecret1", name=
         "/api/auth/signup",
         json={"name": name, "email": email, "password": password, "location": "Testville"},
     )
+
+
+def _signup_and_verify(
+    client, email="hospital@example.com", password="supersecret1", name="Test Hospital"
+):
+    """Signup + verify-email in one step, leaving `client` holding an
+    active session — what most tests actually need to set up."""
+    signup_resp = _signup(client, email=email, password=password, name=name)
+    token = signup_resp.json()["dev_verification_token"]
+    assert token, "expected a dev_verification_token since SMTP isn't configured in tests"
+    return client.post("/api/auth/verify-email", json={"token": token})
 
 
 def _csrf_headers(client) -> dict:
@@ -93,20 +111,17 @@ class TestPasswordHashing:
 
 
 class TestSignupValidation:
-    def test_signup_success(self, client):
+    def test_signup_success_does_not_issue_a_session(self, client):
+        # Signing up only proves someone typed an email-shaped string, not
+        # that they can read mail sent to it — no session until verified.
         resp = _signup(client)
         assert resp.status_code == 200
         data = resp.json()
         assert data["email"] == "hospital@example.com"
-        assert "access_token" not in data  # session must not be exposed in the body
-        assert auth_module.SESSION_COOKIE_NAME in resp.cookies
-        assert client.cookies.get(auth_module.SESSION_COOKIE_NAME) is not None
-        session_cookie = client.cookies.get(auth_module.SESSION_COOKIE_NAME)
-        assert session_cookie  # opaque token, but must be present
-        # httpOnly cookies are still visible to a same-process test client's
-        # cookie jar (it isn't a browser), but the response shouldn't leak
-        # the token anywhere else.
-        assert "access_token" not in resp.text
+        assert data["status"] == "verification_email_sent"
+        assert data["dev_verification_token"]  # SMTP unconfigured in tests
+        assert auth_module.SESSION_COOKIE_NAME not in resp.cookies
+        assert client.get("/api/auth/me").status_code == 401
 
     def test_signup_rejects_invalid_email(self, client):
         resp = _signup(client, email="not-an-email")
@@ -142,9 +157,72 @@ class TestSignupValidation:
         assert resp.status_code == 400
 
 
+class TestEmailVerification:
+    def test_verify_with_valid_token_issues_session(self, client):
+        resp = _signup_and_verify(client, email="verifyme@example.com")
+        assert resp.status_code == 200
+        assert resp.json()["email_verified"] is True
+        assert client.get("/api/auth/me").status_code == 200
+
+    def test_verify_with_unknown_token_rejected(self, client):
+        resp = client.post("/api/auth/verify-email", json={"token": "not-a-real-token"})
+        assert resp.status_code == 400
+
+    def test_verify_token_is_single_use(self, client):
+        signup_resp = _signup(client, email="onceonly@example.com")
+        token = signup_resp.json()["dev_verification_token"]
+        first = client.post("/api/auth/verify-email", json={"token": token})
+        assert first.status_code == 200
+
+        second = client.post("/api/auth/verify-email", json={"token": token})
+        assert second.status_code == 400
+
+    def test_login_blocked_until_verified(self, client):
+        _signup(client, email="unverified@example.com", password="correcthorse1")
+        resp = client.post(
+            "/api/auth/login",
+            json={"email": "unverified@example.com", "password": "correcthorse1"},
+        )
+        assert resp.status_code == 403
+
+    def test_resend_verification_allows_login_after(self, client):
+        _signup(client, email="resend@example.com", password="correcthorse1")
+        resend = client.post(
+            "/api/auth/resend-verification", json={"email": "resend@example.com"}
+        )
+        assert resend.status_code == 200
+        token = resend.json()["dev_verification_token"]
+        assert token
+
+        verify = client.post("/api/auth/verify-email", json={"token": token})
+        assert verify.status_code == 200
+
+        login = client.post(
+            "/api/auth/login",
+            json={"email": "resend@example.com", "password": "correcthorse1"},
+        )
+        assert login.status_code == 200
+
+    def test_resend_verification_same_response_for_unknown_email(self, client):
+        # Must not reveal whether an email is registered at all.
+        known = _signup(client, email="knownaccount@example.com")
+        assert known.status_code == 200
+
+        resp_known = client.post(
+            "/api/auth/resend-verification", json={"email": "knownaccount@example.com"}
+        )
+        resp_unknown = client.post(
+            "/api/auth/resend-verification", json={"email": "totally-unregistered@example.com"}
+        )
+        assert resp_known.status_code == resp_unknown.status_code == 200
+        assert resp_known.json()["status"] == resp_unknown.json()["status"]
+
+
 class TestLoginAndAuth:
     def test_login_success_and_me(self, client):
-        _signup(client, email="loginme@example.com", password="correcthorse1")
+        _signup_and_verify(client, email="loginme@example.com", password="correcthorse1")
+        client.post("/api/auth/logout", headers=_csrf_headers(client))
+
         resp = client.post(
             "/api/auth/login",
             json={"email": "loginme@example.com", "password": "correcthorse1"},
@@ -156,7 +234,8 @@ class TestLoginAndAuth:
         assert me.json()["email"] == "loginme@example.com"
 
     def test_login_wrong_password_rejected(self, client):
-        _signup(client, email="wrongpw@example.com", password="correcthorse1")
+        _signup_and_verify(client, email="wrongpw@example.com", password="correcthorse1")
+        client.post("/api/auth/logout", headers=_csrf_headers(client))
         resp = client.post(
             "/api/auth/login",
             json={"email": "wrongpw@example.com", "password": "wrongpassword"},
@@ -179,7 +258,7 @@ class TestLoginAndAuth:
         assert resp.status_code == 401
 
     def test_me_rejects_tampered_session_cookie(self, client):
-        _signup(client, email="tamper@example.com")
+        _signup_and_verify(client, email="tamper@example.com")
         good = client.cookies.get(auth_module.SESSION_COOKIE_NAME)
         tampered = good[:-1] + ("a" if good[-1] != "a" else "b")
         client.cookies.set(auth_module.SESSION_COOKIE_NAME, tampered)
@@ -187,7 +266,7 @@ class TestLoginAndAuth:
         assert resp.status_code == 401
 
     def test_logout_clears_session(self, client):
-        _signup(client, email="logout@example.com")
+        _signup_and_verify(client, email="logout@example.com")
         assert client.get("/api/auth/me").status_code == 200
 
         resp = client.post("/api/auth/logout", headers=_csrf_headers(client))
@@ -196,14 +275,15 @@ class TestLoginAndAuth:
         assert client.get("/api/auth/me").status_code == 401
 
     def test_logout_requires_csrf_header(self, client):
-        _signup(client, email="logoutcsrf@example.com")
+        _signup_and_verify(client, email="logoutcsrf@example.com")
         resp = client.post("/api/auth/logout")  # no X-CSRF-Token header
         assert resp.status_code == 403
 
 
 class TestLoginRateLimit:
     def test_login_rate_limited_after_repeated_failures(self, client):
-        _signup(client, email="ratelimit@example.com", password="correcthorse1")
+        _signup_and_verify(client, email="ratelimit@example.com", password="correcthorse1")
+        client.post("/api/auth/logout", headers=_csrf_headers(client))
         last_status = None
         for _ in range(auth_module._RATE_LIMIT_MAX_ATTEMPTS + 1):
             last_status = client.post(
@@ -215,7 +295,7 @@ class TestLoginRateLimit:
 
 class TestDatasetUpload:
     def _login_and_headers(self, client, email="uploader@example.com"):
-        _signup(client, email=email, password="correcthorse1")
+        _signup_and_verify(client, email=email, password="correcthorse1")
         return _csrf_headers(client)
 
     def _real_png_bytes(self) -> bytes:
