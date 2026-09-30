@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
 from sqlalchemy.orm import Session
 
 from web_backend.database import get_db
@@ -12,6 +12,8 @@ UPLOAD_DIR = Path(__file__).resolve().parent.parent.parent / "datasets" / "uploa
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_FILES_PER_REQUEST = 100
+DEFAULT_PAGE_SIZE = 50
+MAX_PAGE_SIZE = 100
 
 router = APIRouter()
 
@@ -72,8 +74,17 @@ async def upload_dataset(
 async def list_datasets(
     hospital: Hospital = Depends(get_current_hospital),
     db: Session = Depends(get_db),
+    limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
 ):
-    datasets = db.query(Dataset).filter(Dataset.hospital_id == hospital.id).all()
+    datasets = (
+        db.query(Dataset)
+        .filter(Dataset.hospital_id == hospital.id)
+        .order_by(Dataset.id)
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
     return [
         {
             "id": d.id,
@@ -86,8 +97,18 @@ async def list_datasets(
 
 
 @router.get("/models")
-async def list_models(db: Session = Depends(get_db)):
-    models = db.query(MLModel).order_by(MLModel.created_at.desc()).all()
+async def list_models(
+    db: Session = Depends(get_db),
+    limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
+):
+    models = (
+        db.query(MLModel)
+        .order_by(MLModel.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
     return [
         {
             "id": m.id,
@@ -103,8 +124,12 @@ async def list_models(db: Session = Depends(get_db)):
 
 
 @router.get("/hospitals")
-async def list_hospitals(db: Session = Depends(get_db)):
-    hospitals = db.query(Hospital).all()
+async def list_hospitals(
+    db: Session = Depends(get_db),
+    limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
+):
+    hospitals = db.query(Hospital).order_by(Hospital.id).offset(offset).limit(limit).all()
     return [
         {"id": h.id, "name": h.name, "location": h.location}
         for h in hospitals
