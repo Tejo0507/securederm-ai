@@ -79,7 +79,9 @@ No hospital ever sees another hospital's data. Only gradients cross the wire, an
 | **FedAvg aggregation** | Weighted federated averaging across an arbitrary number of hospital nodes |
 | **Hardened API layer** | Token-gated node registration, signed session tokens, rate-limited auth endpoints |
 | **Modern web console** | Next.js dashboard for live training rounds, model marketplace, and hospital directory |
-| **Real test coverage** | 31 automated tests across the model, aggregator, and web backend |
+| **Verified email accounts** | Signup requires proving control of the email address before login works |
+| **Live wound prediction** | Upload a photo, get a classification with an honest confidence score |
+| **Real test coverage** | 54 automated tests across the model, aggregator, and web backend |
 
 <br/>
 
@@ -124,7 +126,19 @@ python -m hospital_node.client --node hospital_A
 python -m hospital_node.client --node hospital_B
 ```
 
-### 4. Run the web platform (backend + frontend)
+### 4. Configure the web backend (optional, but recommended)
+
+```bash
+cp .env.example .env
+# fill in JWT_SECRET, and SMTP_* if you want real verification emails.
+# See .env.example for what each variable does and its safe defaults.
+```
+
+Without a `.env`, the app still runs: sessions get a random per-process
+secret (fine for local dev, resets on restart) and verification emails
+are logged to the console instead of sent.
+
+### 5. Run the web platform (backend + frontend)
 
 ```bash
 # Terminal 1: API backend
@@ -136,7 +150,7 @@ npm install
 npm run dev
 ```
 
-### 5. Run the test suite
+### 6. Run the test suite
 
 ```bash
 pytest -v
@@ -181,11 +195,17 @@ securederm-ai/
 
 This project has been through a full security and data integrity audit. What that covered:
 
-- **Authentication**: session tokens are HMAC-signed with a secret generated per-process at boot (never a hardcoded fallback), and every auth endpoint is rate-limited against brute force
-- **Federated aggregator**: node identities cannot be hijacked by re-registering an existing hospital ID, model downloads require a valid token, and uploaded weight updates are validated against the global model's architecture before aggregation
-- **Input validation**: email format and password strength are enforced at signup, and uploaded dataset files are verified to actually be images rather than trusted by their declared content type
+- **Sessions**: httpOnly, Secure, SameSite cookies (not localStorage, so a frontend XSS can't just read the token out), signed with a secret generated per-process at boot if none is configured, plus double-submit CSRF protection on every state-changing request
+- **Email verification**: a new hospital account can't log in until it proves control of the email address it signed up with (a real, expiring, single-use link); this also closes the door on unreachable/typo'd addresses
+- **Passwords**: PBKDF2-HMAC-SHA256 with a self-describing, upgradeable iteration count (600,000 by default, OWASP's 2023 minimum), a common-password blocklist, and a login path that costs the same whether or not the email is registered (no timing-based account enumeration)
+- **Federated aggregator**: node identities cannot be hijacked by re-registering an existing hospital ID, model downloads require a valid token, uploaded weight updates are validated against the global model's architecture before aggregation, and request bodies are capped to stop a malformed upload from exhausting server memory
+- **Input validation**: email format and password strength are enforced at signup, and uploaded dataset/prediction images are verified to actually be images rather than trusted by their declared content type
+- **Database**: SQLite foreign-key enforcement and WAL mode are turned on explicitly (SQLite defaults both off), schema changes run through a small startup migration instead of requiring a hand rebuild of the database file
+- **Production posture**: interactive API docs, autoreload, and internal error details are all disabled when `ENV=production`; security headers (CSP, X-Frame-Options, etc.) are set on every response
 - **Dependencies**: all known CVEs in the dependency tree have been patched (verified with `pip-audit`)
 - **Data hygiene**: test suites run against an isolated database and never touch production data
+
+**Not yet implemented:** Sign in with Google. The schema and endpoints are password-first; OAuth is on the roadmap but needs real Google Cloud credentials to wire up, which only the project owner can create.
 
 <br/>
 
@@ -193,7 +213,7 @@ This project has been through a full security and data integrity audit. What tha
 
 <div align="center">
 
-[![Pytest](https://img.shields.io/badge/31%20tests-passing-brightgreen?style=for-the-badge&logo=pytest&logoColor=white)](#)
+[![Pytest](https://img.shields.io/badge/54%20tests-passing-brightgreen?style=for-the-badge&logo=pytest&logoColor=white)](#)
 
 </div>
 
@@ -202,7 +222,8 @@ pytest -v            # full suite
 pytest tests/test_fedavg.py -v      # federated averaging
 pytest tests/test_model.py -v       # model architecture
 pytest tests/test_server.py -v      # aggregation server
-pytest tests/test_web_backend_auth.py -v   # auth and API safety
+pytest tests/test_web_backend_auth.py -v   # auth, sessions, and email verification
+pytest tests/test_predict_router.py -v     # wound prediction endpoint
 ```
 
 <br/>
