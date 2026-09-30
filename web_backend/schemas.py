@@ -52,6 +52,29 @@ class HospitalResponse(BaseModel):
     name: str
     email: str
     location: str = ""
+    email_verified: bool = False
+
+
+class SignupResponse(BaseModel):
+    status: str
+    email: str
+    # Only ever populated when no SMTP account is configured server-side
+    # (see EMAIL_SENDING_CONFIGURED) — ie. never on a properly configured
+    # deployment, where the real verification email is sent instead.
+    dev_verification_token: str | None = None
+
+
+class VerifyEmailRequest(BaseModel):
+    token: str = Field(min_length=1, max_length=500)
+
+
+class ResendVerificationRequest(BaseModel):
+    email: EmailStr
+
+    @field_validator("email")
+    @classmethod
+    def _normalize_email(cls, v: str) -> str:
+        return v.strip().lower()
 
 
 class TrainingStart(BaseModel):

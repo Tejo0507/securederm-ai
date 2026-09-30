@@ -1,10 +1,21 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from config.settings import EMAIL_SENDING_CONFIGURED
 from web_backend.database import get_db
 from web_backend.db_models import Hospital
-from web_backend.schemas import HospitalSignup, HospitalLogin, HospitalResponse
+from web_backend.email_service import send_verification_email
+from web_backend.schemas import (
+    HospitalSignup,
+    HospitalLogin,
+    HospitalResponse,
+    SignupResponse,
+    VerifyEmailRequest,
+    ResendVerificationRequest,
+)
 from web_backend.auth import (
     hash_password,
     verify_password,
@@ -14,17 +25,40 @@ from web_backend.auth import (
     set_session_cookies,
     clear_session_cookies,
     verify_csrf,
+    generate_email_verification_token,
+    hash_email_verification_token,
+    email_verification_expiry,
     DUMMY_PASSWORD_HASH,
 )
 
 router = APIRouter()
 
 
-@router.post("/signup", response_model=HospitalResponse)
+def _hospital_response(hospital: Hospital) -> HospitalResponse:
+    return HospitalResponse(
+        id=hospital.id,
+        name=hospital.name,
+        email=hospital.email,
+        location=hospital.location,
+        email_verified=hospital.email_verified,
+    )
+
+
+def _issue_verification(hospital: Hospital, db: Session) -> str:
+    """(Re)issue a verification token for `hospital`, persist its hash, and
+    send/log the email. Returns the raw token only for dev-mode echoing."""
+    token = generate_email_verification_token()
+    hospital.email_verification_token_hash = hash_email_verification_token(token)
+    hospital.email_verification_expires_at = email_verification_expiry()
+    db.commit()
+    send_verification_email(hospital.email, hospital.name, token)
+    return token
+
+
+@router.post("/signup", response_model=SignupResponse)
 async def signup(
     payload: HospitalSignup,
     request: Request,
-    response: Response,
     db: Session = Depends(get_db),
 ):
     enforce_auth_rate_limit(request, "signup")
@@ -37,6 +71,7 @@ async def signup(
         email=payload.email,
         password_hash=hash_password(payload.password),
         location=payload.location,
+        email_verified=False,
     )
     db.add(hospital)
     try:
@@ -50,14 +85,73 @@ async def signup(
         raise HTTPException(status_code=400, detail="Email already registered")
     db.refresh(hospital)
 
-    token = create_token({"hospital_id": hospital.id, "email": hospital.email})
-    set_session_cookies(response, token)
-    return HospitalResponse(
-        id=hospital.id,
-        name=hospital.name,
+    # No session cookie yet: signing up only proves someone typed an
+    # email-shaped string, not that they can read mail sent to it. A
+    # session is issued once /verify-email confirms that.
+    token = _issue_verification(hospital, db)
+    return SignupResponse(
+        status="verification_email_sent",
         email=hospital.email,
-        location=hospital.location,
+        dev_verification_token=None if EMAIL_SENDING_CONFIGURED else token,
     )
+
+
+@router.post("/verify-email", response_model=HospitalResponse)
+async def verify_email(
+    payload: VerifyEmailRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    enforce_auth_rate_limit(request, "verify-email")
+    token_hash = hash_email_verification_token(payload.token)
+    hospital = (
+        db.query(Hospital)
+        .filter(Hospital.email_verification_token_hash == token_hash)
+        .first()
+    )
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    if (
+        hospital is None
+        or hospital.email_verification_expires_at is None
+        or hospital.email_verification_expires_at < now
+    ):
+        raise HTTPException(status_code=400, detail="Invalid or expired verification link.")
+
+    hospital.email_verified = True
+    hospital.email_verification_token_hash = None
+    hospital.email_verification_expires_at = None
+    db.commit()
+    db.refresh(hospital)
+
+    # Verifying proves inbox ownership, which is exactly the bar for
+    # trusting this session — log them straight in rather than making
+    # them turn around and enter their password again.
+    session_token = create_token({"hospital_id": hospital.id, "email": hospital.email})
+    set_session_cookies(response, session_token)
+    return _hospital_response(hospital)
+
+
+@router.post("/resend-verification")
+async def resend_verification(
+    payload: ResendVerificationRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    enforce_auth_rate_limit(request, "resend-verification")
+    hospital = db.query(Hospital).filter(Hospital.email == payload.email).first()
+
+    dev_token = None
+    if hospital is not None and not hospital.email_verified:
+        dev_token = _issue_verification(hospital, db)
+
+    # Same response whether the account exists, is already verified, or
+    # never existed at all — otherwise this endpoint becomes a free tool
+    # for checking which emails have (unverified) accounts.
+    return {
+        "status": "if_account_exists_email_sent",
+        "dev_verification_token": None if EMAIL_SENDING_CONFIGURED else dev_token,
+    }
 
 
 @router.post("/login", response_model=HospitalResponse)
@@ -79,14 +173,15 @@ async def login(
     if not hospital or not password_ok:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
+    if not hospital.email_verified:
+        raise HTTPException(
+            status_code=403,
+            detail="Email not verified. Check your inbox, or request a new link.",
+        )
+
     token = create_token({"hospital_id": hospital.id, "email": hospital.email})
     set_session_cookies(response, token)
-    return HospitalResponse(
-        id=hospital.id,
-        name=hospital.name,
-        email=hospital.email,
-        location=hospital.location,
-    )
+    return _hospital_response(hospital)
 
 
 @router.post("/logout")
@@ -100,11 +195,6 @@ async def logout(
     return {"status": "logged_out"}
 
 
-@router.get("/me")
+@router.get("/me", response_model=HospitalResponse)
 async def get_me(hospital: Hospital = Depends(get_current_hospital)):
-    return {
-        "id": hospital.id,
-        "name": hospital.name,
-        "email": hospital.email,
-        "location": hospital.location,
-    }
+    return _hospital_response(hospital)

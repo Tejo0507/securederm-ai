@@ -86,6 +86,22 @@ if not JWT_SECRET:
     )
 JWT_ALGORITHM = "HS256"
 
+# ── Email (verification / notifications) ──────────────────────────────────
+# All optional: if SMTP_HOST/SMTP_USER/SMTP_PASSWORD aren't set, the app
+# runs in "dev mode" for email — it logs the message instead of sending it
+# and echoes the verification link back in the API response, so signup
+# still works end-to-end with zero configuration.
+SMTP_HOST = os.getenv("SMTP_HOST", "")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER", "")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+SMTP_FROM_ADDRESS = os.getenv("SMTP_FROM_ADDRESS", SMTP_USER or "no-reply@securederm.local")
+SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").lower() != "false"
+EMAIL_SENDING_CONFIGURED = bool(SMTP_HOST and SMTP_USER and SMTP_PASSWORD)
+
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
+EMAIL_VERIFICATION_TOKEN_TTL_HOURS = 24
+
 # Ensure required directories exist
 for _dir in (CHECKPOINTS_DIR, LOGS_DIR):
     _dir.mkdir(parents=True, exist_ok=True)

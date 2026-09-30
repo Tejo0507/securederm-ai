@@ -10,12 +10,33 @@ from collections import defaultdict, deque
 from fastapi import Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
-from config.settings import JWT_SECRET
+from config.settings import JWT_SECRET, EMAIL_VERIFICATION_TOKEN_TTL_HOURS
 from web_backend.database import get_db
 from web_backend.db_models import Hospital
 
 SECRET_KEY = JWT_SECRET
 TOKEN_EXPIRY = 86400  # 24 hours
+
+
+def generate_email_verification_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def hash_email_verification_token(token: str) -> str:
+    # A raw token would let anyone who reads the database table verify
+    # (and thereby hijack) any pending signup; store only a hash of it,
+    # exactly like a password, and compare against a hash of whatever the
+    # verification link presents.
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def email_verification_expiry():
+    from datetime import datetime, timedelta, timezone
+
+    return datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(
+        hours=EMAIL_VERIFICATION_TOKEN_TTL_HOURS
+    )
+
 
 # ── Session cookie configuration ─────────────────────────────────────────
 # Sessions live in an httpOnly cookie instead of being handed to
@@ -113,7 +134,12 @@ def enforce_auth_rate_limit(request: Request, bucket: str) -> None:
 # ("<salt_hex>:<key_hex>") baked 100,000 iterations in implicitly, which
 # meant bumping the constant would have silently broken every existing
 # login. verify_password still accepts that legacy format.
-PBKDF2_ITERATIONS = 600_000
+#
+# Overridable via env var so the test suite can drop it drastically (the
+# round-trip and format are what tests actually verify, not the real-world
+# cost — paying the full production cost dozens of times per test run
+# just makes the suite slow for no additional coverage).
+PBKDF2_ITERATIONS = int(os.getenv("PBKDF2_ITERATIONS", "600000"))
 _LEGACY_PBKDF2_ITERATIONS = 100_000
 
 
