@@ -279,6 +279,58 @@ class TestLoginRateLimit:
         assert last_status == 429
 
 
+class _FakeClient:
+    def __init__(self, host):
+        self.host = host
+
+
+class _FakeRequest:
+    def __init__(self, host):
+        self.client = _FakeClient(host)
+
+
+class TestRateLimitMemory:
+    """Unit tests directly against the rate limiter's bookkeeping — not
+    the HTTP layer, since what's under test here is a memory-leak bug:
+    _auth_attempts gained one permanent entry for every distinct
+    (bucket, client IP) pair ever seen and never removed it, even for a
+    client that hits the endpoint once and never returns (so a fix that
+    only prunes on that same key's next lookup wouldn't actually help
+    the common case — this one does a full sweep instead)."""
+
+    def test_sweep_removes_only_genuinely_stale_entries(self):
+        now = auth_module.time.time()
+        stale_key = "login:198.51.100.7"
+        fresh_key = "login:203.0.113.9"
+        auth_module._auth_attempts[stale_key].append(
+            now - auth_module._RATE_LIMIT_WINDOW_SECONDS - 1
+        )
+        auth_module._auth_attempts[fresh_key].append(now)
+
+        auth_module._sweep_expired_rate_limit_entries(now)
+
+        assert stale_key not in auth_module._auth_attempts
+        assert fresh_key in auth_module._auth_attempts
+
+        auth_module._auth_attempts.pop(fresh_key, None)
+
+    def test_a_client_that_never_returns_is_eventually_forgotten(self):
+        # The actual regression this guards against: with the old code,
+        # a one-off prober that calls the endpoint exactly once and
+        # never comes back left a permanent entry — nothing was ever
+        # looked up again for that key to trigger cleanup. The periodic
+        # sweep is the only thing that can catch this case.
+        key = "login:192.0.2.55"
+        auth_module._auth_attempts.pop(key, None)
+        auth_module.enforce_auth_rate_limit(_FakeRequest("192.0.2.55"), "login")
+        assert key in auth_module._auth_attempts
+
+        later = auth_module.time.time() + auth_module._RATE_LIMIT_WINDOW_SECONDS + 1
+        auth_module._sweep_expired_rate_limit_entries(later)
+
+        assert key not in auth_module._auth_attempts
+
+
 class TestDatasetUpload:
     def _login_and_headers(self, client, email="uploader@example.com"):
         _signup_and_verify(client, email=email, password="correcthorse1")
