@@ -108,8 +108,29 @@ _RATE_LIMIT_WINDOW_SECONDS = 300
 _RATE_LIMIT_MAX_ATTEMPTS = 10
 _auth_attempts: dict[str, deque] = defaultdict(deque)
 
+# _auth_attempts gains one entry per distinct (bucket, client IP) pair
+# ever seen and never removes it on its own — a client that hits an auth
+# endpoint exactly once and never returns (a one-off prober, say) leaves
+# a permanent entry for the lifetime of the process. Sweeping it only
+# when *that same key* is looked up again wouldn't fix that case (it's
+# never looked up again), so this does a full pass over every key
+# instead, periodically, dropping any whose attempts have all expired.
+_SWEEP_EVERY_N_CALLS = 1000
+_calls_since_sweep = 0
+
+
+def _sweep_expired_rate_limit_entries(now: float) -> None:
+    stale_keys = [
+        k for k, attempts in _auth_attempts.items()
+        if not attempts or now - attempts[-1] > _RATE_LIMIT_WINDOW_SECONDS
+    ]
+    for k in stale_keys:
+        del _auth_attempts[k]
+
 
 def enforce_auth_rate_limit(request: Request, bucket: str) -> None:
+    global _calls_since_sweep
+
     client_host = request.client.host if request.client else "unknown"
     key = f"{bucket}:{client_host}"
     now = time.time()
@@ -125,6 +146,11 @@ def enforce_auth_rate_limit(request: Request, bucket: str) -> None:
         )
 
     attempts.append(now)
+
+    _calls_since_sweep += 1
+    if _calls_since_sweep >= _SWEEP_EVERY_N_CALLS:
+        _calls_since_sweep = 0
+        _sweep_expired_rate_limit_entries(now)
 
 
 # OWASP's 2023 minimum for PBKDF2-HMAC-SHA256. The iteration count is
