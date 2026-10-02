@@ -18,9 +18,14 @@ interface Model {
 
 export default function ModelsPage() {
   const [models, setModels] = useState<Model[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
-    apiFetch<Model[]>("/api/models").then(setModels).catch(() => {});
+    apiFetch<Model[]>("/api/models")
+      .then(setModels)
+      .catch(() => setError(true))
+      .finally(() => setLoading(false));
   }, []);
 
   return (
@@ -46,8 +51,16 @@ export default function ModelsPage() {
             </p>
           </motion.div>
 
-          {models.length === 0 ? (
+          {loading ? (
             <p className="text-center text-zinc-500">Loading models...</p>
+          ) : error ? (
+            <p className="text-center text-rose-400">
+              Could not load models. Is the backend running?
+            </p>
+          ) : models.length === 0 ? (
+            <p className="text-center text-zinc-500">
+              No models available yet.
+            </p>
           ) : (
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {models.map((m, i) => (
