@@ -11,7 +11,14 @@ export default function Navbar() {
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20);
     window.addEventListener("scroll", onScroll);
-    setLoggedIn(!!localStorage.getItem("token"));
+    // Sessions live in an httpOnly cookie now (never localStorage), so
+    // there is no "token" to read here any more — this was silently
+    // always false, showing "Log in" to every visitor regardless of
+    // whether they actually had a valid session. "hospital" is the
+    // non-sensitive display cache the dashboard writes after a
+    // successful login/signup/me check; good enough for a nav link
+    // (worst case it's stale and /dashboard's own auth guard redirects).
+    setLoggedIn(!!localStorage.getItem("hospital"));
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
