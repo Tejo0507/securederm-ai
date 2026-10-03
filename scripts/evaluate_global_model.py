@@ -15,8 +15,7 @@ from config.settings import (
     BATCH_SIZE,
 )
 from hospital_node.dataset_loader import KaggleWoundDataset, split_train_val
-from hospital_node.privacy_layer import make_model_private
-from model.architecture import build_model, get_device
+from model.architecture import build_model_for_state_dict, get_device
 
 
 def main():
@@ -32,14 +31,8 @@ def main():
     _, val_ds = split_train_val(full_ds)
     loader = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
 
-    # Build model with same architecture used during training (Opacus-fixed)
-    model = build_model(pretrained=False, device=device)
-    model = make_model_private(model)
-    model = model.to(device)
-
     weights = torch.load(model_path, map_location=device, weights_only=True)
-    model.load_state_dict(weights, strict=False)
-    model.eval()
+    model = build_model_for_state_dict(weights, device=device)
 
     all_preds = []
     all_labels = []
