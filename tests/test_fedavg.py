@@ -54,3 +54,41 @@ class TestSimpleAverage:
         ]
         result = simple_average(updates)
         assert torch.allclose(result["layer.weight"], torch.tensor([5.0, 5.0]))
+
+
+class TestFedAvgRobustness:
+    def test_preserves_integer_buffer_dtype(self):
+        def sd(v, n):
+            return OrderedDict({"w": torch.tensor([v]), "bn.num_batches_tracked": torch.tensor(n)})
+
+        result = federated_average([
+            {"weights": sd(1.0, 10), "num_samples": 1},
+            {"weights": sd(3.0, 20), "num_samples": 1},
+        ])
+        assert result["bn.num_batches_tracked"].dtype == torch.long
+        assert result["w"].dtype == torch.float32
+
+    def test_mismatched_keys_raise(self):
+        a = _make_dummy_state_dict(1.0)
+        b = OrderedDict({"other": torch.tensor([1.0])})
+        with pytest.raises(ValueError):
+            federated_average([
+                {"weights": a, "num_samples": 1},
+                {"weights": b, "num_samples": 1},
+            ])
+
+    def test_mismatched_shapes_raise(self):
+        a = _make_dummy_state_dict(1.0)
+        b = OrderedDict({"layer.weight": torch.tensor([1.0]), "layer.bias": torch.tensor([1.0])})
+        with pytest.raises(ValueError):
+            simple_average([
+                {"weights": a, "num_samples": 1},
+                {"weights": b, "num_samples": 1},
+            ])
+
+    def test_negative_samples_raise(self):
+        with pytest.raises(ValueError):
+            federated_average([
+                {"weights": _make_dummy_state_dict(1.0), "num_samples": -5},
+                {"weights": _make_dummy_state_dict(1.0), "num_samples": 10},
+            ])
