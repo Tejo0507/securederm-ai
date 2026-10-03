@@ -50,8 +50,14 @@ export async function apiFetch<T = unknown>(
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: "Request failed" }));
-    throw new ApiError(res.status, err.detail || "Request failed");
+    // `detail` is only a string for errors we raise ourselves; guard against
+    // other shapes so the UI never renders "[object Object]".
+    const detail = typeof err?.detail === "string" ? err.detail : "Request failed";
+    throw new ApiError(res.status, detail || "Request failed");
   }
 
-  return res.json();
+  // 204 / empty bodies are valid successes and would make res.json() throw.
+  if (res.status === 204) return undefined as T;
+  const text = await res.text();
+  return (text ? JSON.parse(text) : undefined) as T;
 }
