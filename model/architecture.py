@@ -50,6 +50,24 @@ def build_model(pretrained: bool = True, device: str = "cpu") -> WoundClassifier
     return model.to(device)
 
 
+def build_model_for_state_dict(state_dict: dict, device: str = "cpu") -> WoundClassifier:
+    """Build an eval-ready model whose architecture matches `state_dict`, strictly loaded.
+
+    Checkpoints come either from the stock BatchNorm ResNet or from the
+    Opacus-fixed GroupNorm variant (differential-privacy training). The two
+    share most key names, so a lenient load silently leaves layers randomly
+    initialized; picking the right architecture and loading strictly turns
+    a mismatch into an error instead of garbage predictions.
+    """
+    model = build_model(pretrained=False, device=device)
+    if not any(k.endswith("running_mean") for k in state_dict):
+        from hospital_node.privacy_layer import make_model_private
+        model = make_model_private(model).to(device)
+    model.load_state_dict(state_dict)
+    model.eval()
+    return model
+
+
 def get_device() -> str:
     """Pick the best available device."""
     if torch.cuda.is_available():

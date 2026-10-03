@@ -30,6 +30,7 @@ from aggregator.fedavg import federated_average
 from config.settings import (
     AGGREGATOR_PORT,
     FEDERATED_ROUNDS,
+    USE_DIFFERENTIAL_PRIVACY,
 )
 from model.architecture import build_model
 
@@ -98,6 +99,13 @@ class NodeRegistration(BaseModel):
     hospital_id: str
     dataset_size: int
 
+    @field_validator("dataset_size")
+    @classmethod
+    def _dataset_size_positive(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("dataset_size must be positive")
+        return v
+
 
 class NodeRegistrationResponse(BaseModel):
     node_token: str
@@ -160,11 +168,33 @@ def _deserialize_weights(b64_string: str) -> OrderedDict:
     return torch.load(buffer, map_location="cpu", weights_only=True)
 
 
+def _check_weights_compatible(weights: OrderedDict) -> str | None:
+    """Return an error message if `weights` can't be averaged into the global model."""
+    if global_weights is None:
+        return None
+    for key, ref in global_weights.items():
+        tensor = weights[key]
+        if not isinstance(tensor, torch.Tensor) or tensor.shape != ref.shape:
+            return f"Uploaded weight '{key}' has the wrong shape."
+        if tensor.is_floating_point() != ref.is_floating_point():
+            return f"Uploaded weight '{key}' has the wrong dtype."
+        if tensor.is_floating_point() and not torch.isfinite(tensor).all():
+            return f"Uploaded weight '{key}' contains NaN or Inf values."
+    return None
+
+
 def _init_global_model() -> None:
     """Create the initial global model if not yet initialized."""
     global global_weights, model_version
     if global_weights is None:
         model = build_model(pretrained=True, device="cpu")
+        if USE_DIFFERENTIAL_PRIVACY:
+            # DP clients train an Opacus-fixed model (BatchNorm -> GroupNorm),
+            # whose state_dict keys differ from the stock ResNet's. The global
+            # model must share that architecture or every client update is
+            # rejected as an architecture mismatch.
+            from hospital_node.privacy_layer import make_model_private
+            model = make_model_private(model)
         global_weights = model.state_dict()
         model_version = 1
         logger.info("Global model initialized (version %d)", model_version)
@@ -262,12 +292,25 @@ async def submit_update(
             status_code=400, detail="Could not deserialize model_weights_b64."
         )
 
+    if not isinstance(weights, dict):
+        raise HTTPException(status_code=400, detail="model_weights_b64 is not a state_dict.")
+
     if global_weights is not None and set(weights.keys()) != set(global_weights.keys()):
         raise HTTPException(
             status_code=400,
             detail="Uploaded weights do not match the global model's architecture.",
         )
 
+    problem = _check_weights_compatible(weights)
+    if problem:
+        raise HTTPException(status_code=400, detail=problem)
+
+    # One pending update per node: a node resubmitting before the round
+    # closes replaces its earlier update instead of counting twice (which
+    # would let a single node satisfy MIN_NODES_FOR_AGGREGATION alone).
+    pending_updates[:] = [
+        u for u in pending_updates if u["hospital_id"] != payload.hospital_id
+    ]
     pending_updates.append({
         "hospital_id": payload.hospital_id,
         "weights": weights,
@@ -288,7 +331,12 @@ async def submit_update(
     if len(pending_updates) >= MIN_NODES_FOR_AGGREGATION:
         avg_loss = sum(u["loss"] for u in pending_updates) / len(pending_updates)
         node_names = [u["hospital_id"] for u in pending_updates]
-        global_weights = federated_average(pending_updates)
+        try:
+            global_weights = federated_average(pending_updates)
+        except ValueError as exc:
+            logger.error("Aggregation failed, discarding pending updates: %s", exc)
+            pending_updates.clear()
+            raise HTTPException(status_code=400, detail="Aggregation failed.")
         model_version += 1
         round_metrics.append({
             "round": model_version - 1,
