@@ -412,6 +412,24 @@ class TestDatasetUpload:
         assert resp.json()["uploaded"] == 1
 
 
+class TestUploadFilenameEdgeCases:
+    def _png(self) -> bytes:
+        buf = io.BytesIO()
+        Image.new("RGB", (8, 8)).save(buf, format="PNG")
+        return buf.getvalue()
+
+    @pytest.mark.parametrize("idx,name", [(0, ".."), (1, "."), (2, "..\\..\\evil.png")])
+    def test_odd_filenames_never_500_or_escape(self, client, idx, name):
+        _signup_and_verify(client, email=f"oddname{idx}@example.com", password="correcthorse1")
+        resp = client.post(
+            "/api/datasets/upload",
+            headers=_csrf_headers(client),
+            files={"files": (name, self._png(), "image/png")},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["uploaded"] == (1 if name.endswith("evil.png") else 0)
+
+
 class TestListEndpointPagination:
     def test_hospitals_default_and_capped_page_size(self, client):
         for i in range(5):
