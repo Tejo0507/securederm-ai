@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -44,14 +45,19 @@ def _hospital_response(hospital: Hospital) -> HospitalResponse:
     )
 
 
-def _issue_verification(hospital: Hospital, db: Session) -> str:
+async def _issue_verification(hospital: Hospital, db: Session) -> str:
     """(Re)issue a verification token for `hospital`, persist its hash, and
     send/log the email. Returns the raw token only for dev-mode echoing."""
     token = generate_email_verification_token()
     hospital.email_verification_token_hash = hash_email_verification_token(token)
     hospital.email_verification_expires_at = email_verification_expiry()
     db.commit()
-    send_verification_email(hospital.email, hospital.name, token)
+    # smtplib is blocking (up to its 10s timeout per attempt); run it in a
+    # worker thread so a slow mail server doesn't stall every other
+    # request on the event loop.
+    await run_in_threadpool(
+        send_verification_email, hospital.email, hospital.name, token
+    )
     return token
 
 
@@ -88,7 +94,7 @@ async def signup(
     # No session cookie yet: signing up only proves someone typed an
     # email-shaped string, not that they can read mail sent to it. A
     # session is issued once /verify-email confirms that.
-    token = _issue_verification(hospital, db)
+    token = await _issue_verification(hospital, db)
     return SignupResponse(
         status="verification_email_sent",
         email=hospital.email,
@@ -143,7 +149,7 @@ async def resend_verification(
 
     dev_token = None
     if hospital is not None and not hospital.email_verified:
-        dev_token = _issue_verification(hospital, db)
+        dev_token = await _issue_verification(hospital, db)
 
     # Same response whether the account exists, is already verified, or
     # never existed at all — otherwise this endpoint becomes a free tool
