@@ -23,8 +23,7 @@ from config.settings import (
     IMAGE_SIZE,
     OOD_CONFIDENCE_THRESHOLD,
 )
-from hospital_node.privacy_layer import make_model_private
-from model.architecture import build_model, get_device
+from model.architecture import build_model_for_state_dict, get_device
 
 _TRANSFORM = transforms.Compose([
     transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
@@ -55,13 +54,8 @@ class WoundPredictor:
         if not self.model_path.exists():
             raise FileNotFoundError(f"No saved model found at {self.model_path}")
 
-        model = build_model(pretrained=False, device=self.device)
-        model = make_model_private(model)
-        model = model.to(self.device)
         weights = torch.load(self.model_path, map_location=self.device, weights_only=True)
-        model.load_state_dict(weights, strict=False)
-        model.eval()
-        self.model = model
+        self.model = build_model_for_state_dict(weights, device=self.device)
 
     def predict(self, image: Image.Image) -> PredictionResult:
         tensor = _TRANSFORM(image.convert("RGB")).unsqueeze(0).to(self.device)
