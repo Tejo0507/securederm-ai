@@ -75,7 +75,7 @@ def train_local(
 
         if global_weights:
             # Global weights come from an already-fixed model (same architecture)
-            model.load_state_dict(global_weights, strict=False)
+            model.load_state_dict(global_weights)
 
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
         model, optimizer, loader = attach_privacy_engine(
