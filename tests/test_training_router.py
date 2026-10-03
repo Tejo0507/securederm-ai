@@ -109,3 +109,22 @@ class TestTrainingStateIsolation:
         _signup_and_verify(client, "trainingcsrf@example.com")
         resp = client.post("/api/training/start")  # no CSRF header
         assert resp.status_code == 403
+
+
+class TestSimulationRobustness:
+    def test_crash_mid_run_does_not_leave_training_stuck_active(self, client, monkeypatch):
+        async def _boom(state, hospital_name):
+            raise RuntimeError("simulated crash")
+
+        monkeypatch.setattr(training_router, "_run_simulation", _boom)
+        _signup_and_verify(client, "crashrun@example.com", name="Crash Hospital")
+        started = client.post("/api/training/start", headers=_csrf_headers(client))
+        assert started.json()["status"] == "started"
+
+        status = client.get("/api/training/status").json()
+        assert status["active"] is False
+        assert any("failed" in log for log in status["logs"])
+
+        # A new run must be startable again rather than "already_running".
+        again = client.post("/api/training/start", headers=_csrf_headers(client))
+        assert again.json()["status"] == "started"
