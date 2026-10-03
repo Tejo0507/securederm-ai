@@ -102,6 +102,65 @@ class TestBodySizeLimit:
         assert resp.status_code == 413
 
 
+class TestUpdateValidation:
+    @staticmethod
+    def _register(client, hospital_id):
+        resp = client.post("/node/register", json={
+            "hospital_id": hospital_id,
+            "dataset_size": 100,
+        })
+        return resp.json()["node_token"]
+
+    def test_register_rejects_non_positive_dataset_size(self, client):
+        resp = client.post("/node/register", json={
+            "hospital_id": "empty_dataset_hospital",
+            "dataset_size": 0,
+        })
+        assert resp.status_code == 422
+
+    def test_global_model_matches_dp_client_architecture(self, client):
+        # Updates from DP clients use the Opacus-fixed model; the server's
+        # global model must have identical state_dict keys.
+        import aggregator.server as server_module
+        from config.settings import USE_DIFFERENTIAL_PRIVACY
+        from hospital_node.privacy_layer import make_model_private
+        from model.architecture import build_model
+
+        if not USE_DIFFERENTIAL_PRIVACY:
+            pytest.skip("DP disabled")
+        expected = make_model_private(build_model(pretrained=False)).state_dict().keys()
+        assert set(server_module.global_weights.keys()) == set(expected)
+
+    def test_rejects_wrong_shape_and_nan_weights(self, client):
+        import aggregator.server as server_module
+
+        token = self._register(client, "bad_tensor_hospital")
+        base = server_module.global_weights
+
+        def submit(weights):
+            return client.post("/training/update", json={
+                "hospital_id": "bad_tensor_hospital",
+                "model_weights_b64": server_module._serialize_weights(weights),
+                "num_samples": 10,
+                "training_loss": 0.5,
+            }, headers={"X-Node-Token": token})
+
+        key = next(k for k, v in base.items() if v.is_floating_point() and v.numel() > 1)
+
+        wrong_shape = dict(base)
+        wrong_shape[key] = base[key].flatten()[:1].clone()
+        assert submit(wrong_shape).status_code == 400
+
+        poisoned = dict(base)
+        poisoned[key] = base[key].clone()
+        poisoned[key].view(-1)[0] = float("nan")
+        assert submit(poisoned).status_code == 400
+        assert not any(
+            u["hospital_id"] == "bad_tensor_hospital"
+            for u in server_module.pending_updates
+        )
+
+
 class TestNodeRegistrationHijack:
     def test_cannot_reregister_without_existing_token(self, client):
         first = client.post("/node/register", json={
