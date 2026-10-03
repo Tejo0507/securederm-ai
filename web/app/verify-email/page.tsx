@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { motion } from "framer-motion";
@@ -15,7 +15,15 @@ function VerifyEmailInner() {
   const [status, setStatus] = useState<Status>("verifying");
   const [error, setError] = useState("");
 
+  // Verification tokens are single-use. React strict mode runs effects
+  // twice in dev, and the second request would hit the now-consumed token
+  // and overwrite the success state with an error.
+  const submittedToken = useRef<string | null>(null);
+
   useEffect(() => {
+    if (token && submittedToken.current === token) return;
+    submittedToken.current = token;
+
     if (!token) {
       setStatus("error");
       setError("Missing verification token.");

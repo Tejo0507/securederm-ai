@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import random
 
 from fastapi import APIRouter, Depends, Request
@@ -7,6 +8,8 @@ from sqlalchemy.orm import Session
 from web_backend.database import get_db, SessionLocal
 from web_backend.db_models import Hospital, FederatedRound
 from web_backend.auth import get_current_hospital, verify_csrf
+
+logger = logging.getLogger("web_backend.training")
 
 router = APIRouter()
 
@@ -31,6 +34,7 @@ def _fresh_state() -> dict:
 # dashboard (or to a client with no session at all: /training/status had
 # no auth dependency).
 _training_state: dict[int, dict] = {}
+_background_tasks: set[asyncio.Task] = set()
 
 
 def _state_for(hospital_id: int) -> dict:
@@ -51,14 +55,30 @@ async def start_training(
     _training_state[hospital.id] = _fresh_state()
     _training_state[hospital.id]["active"] = True
 
-    asyncio.create_task(_simulate_training(hospital.id, hospital.name))
+    # The event loop only keeps a weak reference to tasks; without holding
+    # one ourselves the simulation can be garbage-collected mid-run.
+    task = asyncio.create_task(_simulate_training(hospital.id, hospital.name))
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
     return {"status": "started", "total_rounds": 5}
 
 
 async def _simulate_training(hospital_id: int, hospital_name: str) -> None:
-    """Simulate federated training rounds with realistic loss decay."""
     state = _training_state[hospital_id]
+    try:
+        await _run_simulation(state, hospital_name)
+    except Exception:
+        logger.exception("Training simulation crashed for hospital_id=%s", hospital_id)
+        state["logs"].append("✗ Training failed unexpectedly.")
+    finally:
+        # Without this a crash mid-run leaves active=True forever, and
+        # /training/start answers "already_running" until a restart.
+        state["active"] = False
+
+
+async def _run_simulation(state: dict, hospital_name: str) -> None:
+    """Simulate federated training rounds with realistic loss decay."""
     base_loss = 2.5 + random.uniform(-0.2, 0.2)
     partner = "City General Hospital" if "General" not in hospital_name else "Metro Medical Center"
 
@@ -102,22 +122,24 @@ async def _simulate_training(hospital_id: int, hospital_name: str) -> None:
         # Persist to DB — this table represents the shared federated
         # network history, unlike `state`, which is this hospital's own
         # live simulation and must not leak to anyone else.
+        # The session must be closed even if the commit fails, otherwise
+        # every failed round leaks a pooled connection.
+        db = SessionLocal()
         try:
-            db = SessionLocal()
-            fr = FederatedRound(
+            db.add(FederatedRound(
                 round_number=round_num,
                 participating_hospitals=f"{hospital_name}, {partner}",
                 avg_loss=avg_loss,
-            )
-            db.add(fr)
+            ))
             db.commit()
-            db.close()
         except Exception:
-            pass
+            db.rollback()
+            logger.exception("Could not persist federated round %d", round_num)
+        finally:
+            db.close()
 
         await asyncio.sleep(1)
 
-    state["active"] = False
     state["logs"].append("✓ Federated training complete!")
 
 

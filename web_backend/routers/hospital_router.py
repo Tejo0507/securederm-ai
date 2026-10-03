@@ -1,5 +1,5 @@
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
 from sqlalchemy.orm import Session
@@ -51,8 +51,10 @@ async def upload_dataset(
         if not content or not is_genuine_image(content):
             continue  # reject empty / spoofed-content-type / non-image files
 
-        safe_name = Path(f.filename).name
-        if not safe_name:
+        # PureWindowsPath splits on both "/" and "\", so a client-supplied
+        # "..\\..\\x.png" is reduced to its basename on any host OS.
+        safe_name = PureWindowsPath(f.filename).name
+        if not safe_name or safe_name in (".", ".."):
             continue
         dest = hospital_dir / safe_name
         with open(dest, "wb") as out:

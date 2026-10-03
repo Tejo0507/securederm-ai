@@ -13,7 +13,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, ApiError } from "@/lib/api";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -43,6 +43,9 @@ interface TrainingStatus {
   metrics: Metric[];
 }
 
+const UPLOAD_BATCH_MAX_FILES = 100;
+const UPLOAD_BATCH_MAX_BYTES = 20 * 1024 * 1024;
+
 interface HospitalInfo {
   id: number;
   name: string;
@@ -62,17 +65,26 @@ export default function DashboardPage() {
      check localStorage for a token — ask the backend who (if anyone)
      the current cookie belongs to. */
   useEffect(() => {
-    const stored = localStorage.getItem("hospital");
-    if (stored) setHospital(JSON.parse(stored)); // optimistic first paint
+    try {
+      const stored = localStorage.getItem("hospital");
+      if (stored) setHospital(JSON.parse(stored)); // optimistic first paint
+    } catch {
+      // corrupt/blocked cache — fall through to the authoritative /me check
+      localStorage.removeItem("hospital");
+    }
 
     apiFetch<HospitalInfo>("/api/auth/me")
       .then((h) => {
         setHospital(h);
         localStorage.setItem("hospital", JSON.stringify(h));
       })
-      .catch(() => {
-        localStorage.removeItem("hospital");
-        router.push("/login");
+      .catch((err: unknown) => {
+        // Only a 401 means "not signed in". A network blip or a 5xx must
+        // not throw away a valid session by bouncing the user to /login.
+        if (err instanceof ApiError && err.status === 401) {
+          localStorage.removeItem("hospital");
+          router.push("/login");
+        }
       });
   }, [router]);
 
@@ -239,6 +251,7 @@ function DataTab() {
   >([]);
   const [uploading, setUploading] = useState(false);
   const [msg, setMsg] = useState("");
+  const [msgIsError, setMsgIsError] = useState(false);
 
   const loadDatasets = useCallback(() => {
     apiFetch<typeof datasets>("/api/datasets").then(setDatasets).catch(() => {});
@@ -253,6 +266,7 @@ function DataTab() {
     const form = e.currentTarget;
     const input = form.querySelector<HTMLInputElement>('input[type="file"]');
     if (!input?.files?.length) {
+      setMsgIsError(true);
       setMsg("Please select image files first.");
       return;
     }
@@ -260,22 +274,50 @@ function DataTab() {
     setUploading(true);
     setMsg("");
 
-    const fd = new FormData();
+    // The backend caps a request at 100 files / 25 MB; send big selections
+    // as several requests instead of having the whole upload rejected.
+    const batches: File[][] = [];
+    let current: File[] = [];
+    let currentBytes = 0;
     for (const f of Array.from(input.files)) {
-      fd.append("files", f);
+      if (
+        current.length > 0 &&
+        (current.length >= UPLOAD_BATCH_MAX_FILES ||
+          currentBytes + f.size > UPLOAD_BATCH_MAX_BYTES)
+      ) {
+        batches.push(current);
+        current = [];
+        currentBytes = 0;
+      }
+      current.push(f);
+      currentBytes += f.size;
     }
+    if (current.length > 0) batches.push(current);
 
+    let uploaded = 0;
+    let totalImages = 0;
     try {
-      const data = await apiFetch<{ uploaded: number; total_images: number }>(
-        "/api/datasets/upload",
-        { method: "POST", body: fd },
-      );
-      setMsg(`Uploaded ${data.uploaded} images (${data.total_images} total)`);
+      for (const batch of batches) {
+        const fd = new FormData();
+        for (const f of batch) fd.append("files", f);
+        const data = await apiFetch<{ uploaded: number; total_images: number }>(
+          "/api/datasets/upload",
+          { method: "POST", body: fd },
+        );
+        uploaded += data.uploaded;
+        totalImages = data.total_images;
+      }
+      setMsgIsError(false);
+      setMsg(`Uploaded ${uploaded} images (${totalImages} total)`);
       input.value = "";
-      loadDatasets();
     } catch (err: unknown) {
-      setMsg(err instanceof Error ? err.message : "Upload failed. Is the backend running?");
+      setMsgIsError(true);
+      setMsg(
+        (uploaded > 0 ? `Uploaded ${uploaded} images before failing: ` : "") +
+          (err instanceof Error ? err.message : "Upload failed. Is the backend running?"),
+      );
     } finally {
+      loadDatasets();
       setUploading(false);
     }
   }
@@ -308,9 +350,7 @@ function DataTab() {
         </form>
         {msg && (
           <p className={`mt-3 text-sm ${
-            msg.includes("failed") || msg.includes("Please")
-              ? "text-rose-400"
-              : "text-emerald-400"
+            msgIsError ? "text-rose-400" : "text-emerald-400"
           }`}>{msg}</p>
         )}
       </div>
@@ -356,6 +396,15 @@ function PredictTab() {
   const [result, setResult] = useState<PredictionResult | null>(null);
   const [error, setError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Release the last preview's blob URL when leaving the tab.
+  const previewRef = useRef<string | null>(null);
+  previewRef.current = preview;
+  useEffect(() => {
+    return () => {
+      if (previewRef.current) URL.revokeObjectURL(previewRef.current);
+    };
+  }, []);
 
   function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
