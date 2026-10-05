@@ -14,6 +14,7 @@ Usage:
 import argparse
 import base64
 import io
+import os
 import sys
 import time
 import logging
@@ -34,6 +35,12 @@ logging.basicConfig(
     format="%(asctime)s [%(name)s] %(message)s",
 )
 logger = logging.getLogger("hospital_node")
+
+# Read from the environment rather than a CLI flag so the token doesn't
+# end up in shell history or the process list.
+NODE_TOKEN = os.getenv("NODE_TOKEN", "")
+MAX_ROUND_ATTEMPTS = 3
+RETRY_DELAY_SECONDS = 5
 
 
 class HospitalClient:
@@ -68,8 +75,20 @@ class HospitalClient:
             "dataset_size": dataset_size,
         }
 
+        # A restarted node can't re-register an id the aggregator already
+        # knows without presenting that id's current token (anti-hijack).
+        headers = {"X-Node-Token": NODE_TOKEN} if NODE_TOKEN else {}
+
         try:
-            resp = requests.post(url, json=payload, timeout=30)
+            resp = requests.post(url, json=payload, headers=headers, timeout=30)
+            if resp.status_code == 409:
+                self.log.error(
+                    "%s '%s' is already registered with the aggregator. Set the "
+                    "NODE_TOKEN environment variable to its current token to "
+                    "re-register, or restart the aggregator.",
+                    self.tag, self.hospital_id,
+                )
+                return False
             resp.raise_for_status()
         except requests.RequestException as exc:
             self.log.error("%s Registration failed: %s", self.tag, exc)
@@ -96,9 +115,13 @@ class HospitalClient:
             self.log.error("%s Model download failed: %s", self.tag, exc)
             return None
 
-        data = resp.json()
-        raw = base64.b64decode(data["weights_b64"])
-        weights = torch.load(io.BytesIO(raw), map_location="cpu", weights_only=True)
+        try:
+            data = resp.json()
+            raw = base64.b64decode(data["weights_b64"])
+            weights = torch.load(io.BytesIO(raw), map_location="cpu", weights_only=True)
+        except Exception as exc:
+            self.log.error("%s Received an unreadable model: %s", self.tag, exc)
+            return None
         self.log.info("%s Downloading model v%d", self.tag, data["model_version"])
         return weights
 
@@ -139,14 +162,25 @@ class HospitalClient:
 
         # 1) Download latest model
         global_weights = self.download_model()
+        if global_weights is None:
+            # Training from a fresh ImageNet init and uploading it would
+            # average an unrelated model into the global one.
+            self.log.error("%s No global model — skipping round %d", self.tag, round_num)
+            return False
 
         # 2) Train locally
         self.log.info("%s Training locally ...", self.tag)
-        result = train_local(
-            dataset_path=self.dataset_path or None,
-            dataset=self.dataset,
-            global_weights=global_weights,
-        )
+        try:
+            result = train_local(
+                dataset_path=self.dataset_path or None,
+                dataset=self.dataset,
+                global_weights=global_weights,
+            )
+        except Exception:
+            # Don't take the whole node down (or leak a traceback that may
+            # include file paths) over one failed round.
+            self.log.exception("%s Local training failed", self.tag)
+            return False
         self.log.info("%s Local loss: %.4f", self.tag, result["loss"])
 
         # 3) Upload updated weights
@@ -189,6 +223,11 @@ def main():
         full_ds = KaggleWoundDataset(str(KAGGLE_DATASET_DIR), training=True)
         train_ds, _ = split_train_val(full_ds)
         partitions = partition_for_hospitals(train_ds, num_hospitals=2)
+        if args.partition >= len(partitions):
+            logger.error(
+                "--partition %d is out of range (0-%d).", args.partition, len(partitions) - 1
+            )
+            sys.exit(1)
         my_dataset = partitions[args.partition]
         client = HospitalClient(
             hospital_id=args.node, dataset=my_dataset,
@@ -206,16 +245,30 @@ def main():
         sys.exit(1)
 
     # Run federated rounds
+    failed_rounds = 0
     for round_num in range(1, args.rounds + 1):
         logger.info("=== Round %d/%d ===", round_num, args.rounds)
-        success = client.run_round(round_num=round_num)
+        success = False
+        for attempt in range(1, MAX_ROUND_ATTEMPTS + 1):
+            success = client.run_round(round_num=round_num)
+            if success:
+                break
+            if attempt < MAX_ROUND_ATTEMPTS:
+                logger.warning(
+                    "Round %d failed (attempt %d/%d) — retrying in %ds",
+                    round_num, attempt, MAX_ROUND_ATTEMPTS, RETRY_DELAY_SECONDS,
+                )
+                time.sleep(RETRY_DELAY_SECONDS)
         if not success:
-            logger.warning("Round %d failed — retrying in 5s", round_num)
-            time.sleep(5)
+            failed_rounds += 1
+            logger.error("Round %d failed after %d attempts.", round_num, MAX_ROUND_ATTEMPTS)
             continue
         # Brief pause between rounds to avoid hammering the server
         time.sleep(2)
 
+    if failed_rounds:
+        logger.error("%d of %d rounds failed for node '%s'.", failed_rounds, args.rounds, args.node)
+        sys.exit(1)
     logger.info("All rounds complete for node '%s'.", args.node)
 
 

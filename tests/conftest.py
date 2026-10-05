@@ -35,3 +35,6 @@ _TEST_DB_DIR = tempfile.mkdtemp(prefix="securederm_test_")
 os.environ["DATABASE_URL"] = f"sqlite:///{os.path.join(_TEST_DB_DIR, 'test.db')}"
 os.environ.setdefault("PBKDF2_ITERATIONS", "1000")
 os.environ["UPLOAD_DIR"] = tempfile.mkdtemp(prefix="securederm_test_uploads_")
+# The aggregator persists its global model to checkpoints/ after each round;
+# tests must never write into (or restore from) the real checkpoints dir.
+os.environ["AGGREGATOR_PERSIST"] = "false"
