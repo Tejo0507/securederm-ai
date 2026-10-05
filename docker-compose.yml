@@ -10,6 +10,10 @@ services:
     environment:
       - AGGREGATOR_HOST=0.0.0.0
       - AGGREGATOR_PORT=8000
+      - AGGREGATOR_ADMIN_TOKEN=${AGGREGATOR_ADMIN_TOKEN:-}
+    volumes:
+      # Persisted global model; the web backend's predictor reads it too.
+      - ./checkpoints:/app/checkpoints
 
   hospital_a:
     build:
