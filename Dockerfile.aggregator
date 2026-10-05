@@ -1,10 +1,19 @@
 # ── Aggregator Server ────────────────────────────────────────────────
 FROM python:3.11-slim
 
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# CPU-only PyTorch: the default PyPI wheel bundles CUDA libraries (>2 GB)
+# that an aggregator never uses.
+ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
+RUN pip install --no-cache-dir torch torchvision --index-url ${TORCH_INDEX_URL}
+
+COPY requirements-service.txt .
+RUN pip install --no-cache-dir -r requirements-service.txt
 
 COPY config/ config/
 COPY model/ model/
@@ -14,6 +23,15 @@ COPY hospital_node/ hospital_node/
 COPY aggregator/ aggregator/
 COPY __init__.py .
 
+# Run unprivileged; checkpoints/ is where the global model is persisted.
+RUN useradd --system --uid 10001 --no-create-home app \
+    && mkdir -p checkpoints logs \
+    && chown -R app:app /app
+USER app
+
 EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
+    CMD python -c "import os,urllib.request as u; u.urlopen('http://127.0.0.1:%s/status' % os.getenv('AGGREGATOR_PORT','8000'), timeout=3)"
 
 CMD ["python", "-m", "aggregator.server"]
