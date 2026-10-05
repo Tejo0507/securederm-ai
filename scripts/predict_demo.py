@@ -4,65 +4,39 @@ Wound image prediction demo.
 Usage:
     python -m scripts.predict_demo [path_to_image]
 
-If no image path is given, picks a random image from the validation set.
+If no image path is given, picks the first image of the validation set.
+Uses the same predictor as the web backend, so the demo reflects the
+real behaviour, including the "Unknown — refer for manual review" safety net.
 """
 
 import sys
 from pathlib import Path
 
-import torch
 from PIL import Image
-from torchvision import transforms
 
-from config.settings import (
-    CHECKPOINTS_DIR,
-    IMAGE_SIZE,
-    KAGGLE_DATASET_DIR,
-)
+from config.settings import KAGGLE_DATASET_DIR
 from hospital_node.dataset_loader import KaggleWoundDataset, split_train_val
-from model.architecture import build_model_for_state_dict, get_device
+from model.inference import WoundPredictor
 
 
 def predict_image(image_path: str) -> None:
-    device = get_device()
-    model_path = CHECKPOINTS_DIR / "global_model.pt"
-
-    if not model_path.exists():
-        print(f"No saved model found at {model_path}")
+    try:
+        predictor = WoundPredictor()
+    except FileNotFoundError as exc:
+        print(exc)
         return
 
-    # Discover class names from dataset folder
-    ds = KaggleWoundDataset(str(KAGGLE_DATASET_DIR), training=False)
-    class_names = ds.class_names
-
-    weights = torch.load(model_path, map_location=device, weights_only=True)
-    model = build_model_for_state_dict(weights, device=device)
-
-    # Preprocess image
-    transform = transforms.Compose([
-        transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
-        transforms.ToTensor(),
-        transforms.Normalize(
-            mean=[0.485, 0.456, 0.406],
-            std=[0.229, 0.224, 0.225],
-        ),
-    ])
-
-    image = Image.open(image_path).convert("RGB")
-    tensor = transform(image).unsqueeze(0).to(device)
-
-    # Inference
-    with torch.no_grad():
-        logits = model(tensor)
-        probs = torch.softmax(logits, dim=1)
-        confidence, pred_idx = torch.max(probs, 1)
-
-    pred_class = class_names[pred_idx.item()]
-    conf = confidence.item()
+    with Image.open(image_path) as image:
+        result = predictor.predict(image)
 
     print(f"\nImage: {image_path}")
-    print(f"Prediction: {pred_class}")
-    print(f"Confidence: {conf:.2f}\n")
+    label = "Unknown (refer for manual review)" if result.is_unknown else result.predicted_class
+    print(f"Prediction: {label}")
+    print(f"Confidence: {result.confidence:.2f}  (uncertainty {result.uncertainty:.2f})")
+    print("Top candidates:")
+    for item in result.top_predictions:
+        print(f"  {item['label']:<18}{item['probability']:.2%}")
+    print()
 
 
 def main():

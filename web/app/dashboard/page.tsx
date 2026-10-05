@@ -26,6 +26,8 @@ interface PredictionResult {
   is_unknown: boolean;
   message: string;
   class_probabilities: Record<string, number>;
+  top_predictions?: { label: string; probability: number }[];
+  uncertainty?: number;
 }
 
 interface Metric {
@@ -507,6 +509,31 @@ function PredictTab() {
             </div>
             <div className="text-xs mt-1 opacity-80">{result.message}</div>
           </div>
+
+          {result.top_predictions && result.top_predictions.length > 0 && (
+            <div>
+              <h4 className="text-xs text-zinc-500 uppercase tracking-wider mb-2">
+                Most Likely Diagnoses
+              </h4>
+              <ol className="space-y-1 text-sm text-zinc-300">
+                {result.top_predictions.map((p, i) => (
+                  <li key={p.label} className="flex justify-between">
+                    <span>
+                      {i + 1}. {p.label}
+                    </span>
+                    <span className="text-zinc-500">
+                      {(p.probability * 100).toFixed(1)}%
+                    </span>
+                  </li>
+                ))}
+              </ol>
+              {typeof result.uncertainty === "number" && (
+                <p className="mt-2 text-xs text-zinc-600">
+                  Model uncertainty: {(result.uncertainty * 100).toFixed(0)}%
+                </p>
+              )}
+            </div>
+          )}
 
           <div>
             <h4 className="text-xs text-zinc-500 uppercase tracking-wider mb-3">

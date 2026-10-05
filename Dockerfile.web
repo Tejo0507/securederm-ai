@@ -1,0 +1,35 @@
+# ── Web Frontend (Next.js) ───────────────────────────────────────────
+# Build with the web/ directory as context:
+#   docker build -f Dockerfile.web --build-arg NEXT_PUBLIC_API_URL=https://api.example.com ./web
+FROM node:20-alpine AS deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+
+FROM node:20-alpine AS build
+WORKDIR /app
+# NEXT_PUBLIC_* values are inlined into the client bundle at build time, so
+# the browser-facing API URL must be supplied here, not at `docker run`.
+ARG NEXT_PUBLIC_API_URL=http://localhost:8001
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL} \
+    NEXT_TELEMETRY_DISABLED=1
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN npm run build
+
+FROM node:20-alpine AS run
+WORKDIR /app
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PORT=3000 \
+    HOSTNAME=0.0.0.0
+RUN addgroup -S app && adduser -S app -G app
+# next.config.mjs sets output: "standalone", which bundles only the files
+# the server needs (no full node_modules).
+COPY --from=build --chown=app:app /app/.next/standalone ./
+COPY --from=build --chown=app:app /app/.next/static ./.next/static
+USER app
+EXPOSE 3000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD wget -q --spider http://127.0.0.1:3000/ || exit 1
+CMD ["node", "server.js"]
