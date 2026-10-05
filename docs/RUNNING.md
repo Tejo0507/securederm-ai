@@ -157,5 +157,10 @@ Notes:
   model without a node token. Leave it unset to disable admin access.
 - The global model is saved to `checkpoints/global_model.pt` after every
   round and restored on startup (disable with `AGGREGATOR_PERSIST=false`).
+- Each node keeps a privacy ledger in `logs/privacy_ledger_<node>.json` and
+  stops (exit code 2) once `DP_TOTAL_EPSILON_BUDGET` (default 100, 0 = off) is
+  spent across rounds.
+- Prediction tuning: `INFERENCE_TEMPERATURE` (see the suggestion printed by
+  `python -m scripts.evaluate_global_model`) and `INFERENCE_TTA=true`.
 - A restarted node whose `hospital_id` is still registered must set the
   `NODE_TOKEN` environment variable to its current token to re-register.
