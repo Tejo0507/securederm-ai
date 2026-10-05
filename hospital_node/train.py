@@ -7,6 +7,7 @@ returns updated model weights (never raw data).
 
 import copy
 import logging
+import math
 from typing import Optional
 
 import torch
@@ -53,12 +54,23 @@ def train_local(
             raise ValueError("Must provide either dataset_path or dataset")
         dataset = WoundDataset(dataset_path, training=True)
 
+    if len(dataset) == 0:
+        raise ValueError("Cannot train on an empty dataset.")
+
+    # BatchNorm (non-DP path) raises on a training batch of exactly one
+    # sample, so drop a trailing singleton batch. The DP path samples its
+    # own batches via Opacus, so this only matters without it.
+    drop_last = (
+        not USE_DIFFERENTIAL_PRIVACY
+        and len(dataset) > batch_size
+        and len(dataset) % batch_size == 1
+    )
     loader = DataLoader(
         dataset,
         batch_size=batch_size,
         shuffle=True,
         num_workers=0,  # safer on Windows
-        drop_last=False,
+        drop_last=drop_last,
     )
 
     # Initialize model
@@ -119,6 +131,17 @@ def train_local(
         state_dict = copy.deepcopy(model._module.state_dict())
     else:
         state_dict = copy.deepcopy(model.state_dict())
+
+    # Ship CPU tensors: the aggregator (and torch.load(map_location="cpu")
+    # on the other side) shouldn't depend on this node's GPU layout.
+    state_dict = {k: v.detach().cpu() for k, v in state_dict.items()}
+
+    # A diverged run would be rejected by the aggregator anyway; failing
+    # here says why and avoids uploading ~45 MB of NaNs.
+    if not math.isfinite(running_loss) or any(
+        v.is_floating_point() and not torch.isfinite(v).all() for v in state_dict.values()
+    ):
+        raise RuntimeError("Local training diverged (non-finite loss or weights).")
 
     return {
         "weights": state_dict,
