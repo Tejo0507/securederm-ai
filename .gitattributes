@@ -1,0 +1,6 @@
+# Build files run inside Linux containers; CRLF there breaks `RUN \` line
+# continuations and shell scripts, so never convert them on Windows checkouts.
+Dockerfile* text eol=lf
+*.sh text eol=lf
+docker-compose*.yml text eol=lf
+.dockerignore text eol=lf
