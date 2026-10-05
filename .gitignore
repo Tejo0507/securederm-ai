@@ -40,6 +40,7 @@ datasets/
 wound_dataset/
 wound_dataset.zip
 backups/
+data/
 
 # Secrets
 .env

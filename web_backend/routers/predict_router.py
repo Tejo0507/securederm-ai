@@ -66,4 +66,6 @@ def predict_wound(  # sync def: FastAPI runs this in a worker thread, so a
         "is_unknown": result.is_unknown,
         "message": result.message,
         "class_probabilities": result.class_probabilities,
+        "top_predictions": getattr(result, "top_predictions", []),
+        "uncertainty": getattr(result, "uncertainty", 0.0),
     }

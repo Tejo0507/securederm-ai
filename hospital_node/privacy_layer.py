@@ -6,19 +6,31 @@ noise injection so that individual patient data cannot be
 reverse-engineered from transmitted gradients.
 """
 
+import json
+import logging
+import os
+import re
+import types
+from pathlib import Path
+
 from opacus import PrivacyEngine
 from opacus.validators import ModuleValidator
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
+from torchvision.models.resnet import BasicBlock, Bottleneck
 
 from config.settings import (
     DP_EPSILON,
     DP_DELTA,
     DP_MAX_GRAD_NORM,
+    DP_TOTAL_EPSILON_BUDGET,
     LOCAL_EPOCHS,
     LEARNING_RATE,
+    LOGS_DIR,
 )
+
+logger = logging.getLogger("hospital_node.privacy")
 
 
 def make_model_private(model: nn.Module) -> nn.Module:
@@ -26,7 +38,8 @@ def make_model_private(model: nn.Module) -> nn.Module:
     Validate and fix the model for Opacus compatibility.
 
     Opacus requires certain layer types (e.g., BatchNorm must
-    become GroupNorm) and no inplace operations.
+    become GroupNorm) and no inplace operations. Safe to call more
+    than once on the same model.
     """
     if not ModuleValidator.is_valid(model):
         model = ModuleValidator.fix(model)
@@ -39,51 +52,49 @@ def make_model_private(model: nn.Module) -> nn.Module:
 
 
 def _disable_inplace_relu(module: nn.Module) -> None:
-    """Recursively set inplace=False on all ReLU layers."""
-    for child_name, child in module.named_modules():
+    """Set inplace=False on every ReLU in the module tree."""
+    for child in module.modules():
         if isinstance(child, nn.ReLU) and child.inplace:
             child.inplace = False
 
 
+def _basic_forward(self, x):
+    identity = x
+    out = self.conv1(x)
+    out = self.bn1(out)
+    out = self.relu(out)
+    out = self.conv2(out)
+    out = self.bn2(out)
+    if self.downsample is not None:
+        identity = self.downsample(x)
+    out = out + identity  # non-inplace
+    out = self.relu(out)
+    return out
+
+
+def _bottleneck_forward(self, x):
+    identity = x
+    out = self.conv1(x)
+    out = self.bn1(out)
+    out = self.relu(out)
+    out = self.conv2(out)
+    out = self.bn2(out)
+    out = self.relu(out)
+    out = self.conv3(out)
+    out = self.bn3(out)
+    if self.downsample is not None:
+        identity = self.downsample(x)
+    out = out + identity  # non-inplace
+    out = self.relu(out)
+    return out
+
+
 def _patch_resnet_residuals(model: nn.Module) -> None:
     """Monkey-patch ResNet BasicBlock/Bottleneck to avoid inplace += in skip connections."""
-    from torchvision.models.resnet import BasicBlock, Bottleneck
-
-    def _basic_forward(self, x):
-        identity = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        if self.downsample is not None:
-            identity = self.downsample(x)
-        out = out + identity  # non-inplace
-        out = self.relu(out)
-        return out
-
-    def _bottleneck_forward(self, x):
-        identity = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            identity = self.downsample(x)
-        out = out + identity  # non-inplace
-        out = self.relu(out)
-        return out
-
     for m in model.modules():
         if isinstance(m, BasicBlock):
-            import types
             m.forward = types.MethodType(_basic_forward, m)
         elif isinstance(m, Bottleneck):
-            import types
             m.forward = types.MethodType(_bottleneck_forward, m)
 
 
@@ -95,7 +106,8 @@ def attach_privacy_engine(
     delta: float = DP_DELTA,
     max_grad_norm: float = DP_MAX_GRAD_NORM,
     epochs: int = LOCAL_EPOCHS,
-) -> tuple[nn.Module, torch.optim.Optimizer, DataLoader]:
+    return_engine: bool = False,
+):
     """
     Attach Opacus PrivacyEngine to the training components.
 
@@ -103,7 +115,9 @@ def attach_privacy_engine(
       1. Clip per-sample gradients to max_grad_norm
       2. Add calibrated Gaussian noise
 
-    Returns the (wrapped_model, wrapped_optimizer, wrapped_loader).
+    Returns (wrapped_model, wrapped_optimizer, wrapped_loader), plus the
+    PrivacyEngine as a fourth item when `return_engine` is true — the engine
+    is the only way to ask how much privacy budget was actually spent.
     """
     privacy_engine = PrivacyEngine()
 
@@ -117,13 +131,96 @@ def attach_privacy_engine(
         epochs=epochs,
     )
 
+    if return_engine:
+        return model, optimizer, data_loader, privacy_engine
     return model, optimizer, data_loader
 
 
-def get_privacy_spent(privacy_engine: PrivacyEngine) -> dict:
+def get_privacy_spent(privacy_engine: PrivacyEngine, delta: float = DP_DELTA) -> dict:
     """Query the current privacy budget consumption."""
-    epsilon = privacy_engine.get_epsilon(delta=DP_DELTA)
-    return {"epsilon": epsilon, "delta": DP_DELTA}
+    epsilon = privacy_engine.get_epsilon(delta=delta)
+    return {"epsilon": epsilon, "delta": delta}
+
+
+# ── Cumulative privacy budget ────────────────────────────────────────────
+class PrivacyBudgetExceeded(RuntimeError):
+    """Raised when another training round would exceed the node's total budget."""
+
+
+class PrivacyBudget:
+    """Per-node ledger of epsilon spent across federated rounds.
+
+    Each local round gets a fresh Opacus accountant, so by itself nothing
+    notices that the same patients' data is touched again every round and
+    the real cumulative leakage keeps growing. This persists the spend and
+    refuses to start a round that would push the total past
+    DP_TOTAL_EPSILON_BUDGET. Epsilons are summed (basic sequential
+    composition), a conservative upper bound.
+
+    A budget of 0 (or less) disables enforcement; spending is still recorded.
+    """
+
+    def __init__(
+        self,
+        node_id: str,
+        total_budget: float | None = None,
+        directory: Path | None = None,
+    ):
+        safe_id = re.sub(r"[^A-Za-z0-9_.-]", "_", node_id)[:64] or "node"
+        self.path = Path(directory or LOGS_DIR) / f"privacy_ledger_{safe_id}.json"
+        self.total_budget = (
+            DP_TOTAL_EPSILON_BUDGET if total_budget is None else total_budget
+        )
+        self.spent = 0.0
+        self.rounds = 0
+        self._load()
+
+    def _load(self) -> None:
+        try:
+            data = json.loads(self.path.read_text())
+            self.spent = max(float(data.get("epsilon_spent", 0.0)), 0.0)
+            self.rounds = int(data.get("rounds", 0))
+        except FileNotFoundError:
+            pass
+        except (ValueError, OSError):
+            # A corrupt ledger must not silently reset to "nothing spent".
+            raise RuntimeError(
+                f"Privacy ledger {self.path} is unreadable; fix or remove it "
+                "deliberately rather than losing the recorded budget."
+            )
+
+    @property
+    def remaining(self) -> float:
+        if self.total_budget <= 0:
+            return float("inf")
+        return max(self.total_budget - self.spent, 0.0)
+
+    def check(self, next_round_epsilon: float) -> None:
+        """Raise PrivacyBudgetExceeded if the next round would overspend."""
+        if self.total_budget > 0 and self.spent + next_round_epsilon > self.total_budget:
+            raise PrivacyBudgetExceeded(
+                f"Privacy budget exhausted: {self.spent:.2f} of "
+                f"{self.total_budget:.2f} epsilon spent; the next round needs "
+                f"{next_round_epsilon:.2f}."
+            )
+
+    def record(self, epsilon: float) -> None:
+        self.spent += float(epsilon)
+        self.rounds += 1
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps({
+            "epsilon_spent": self.spent,
+            "rounds": self.rounds,
+            "total_budget": self.total_budget,
+            "delta": DP_DELTA,
+        }))
+        os.replace(tmp, self.path)  # a crash mid-write must not corrupt the ledger
+        logger.info(
+            "Privacy budget: %.2f spent over %d rounds (remaining %s)",
+            self.spent, self.rounds,
+            "unlimited" if self.total_budget <= 0 else f"{self.remaining:.2f}",
+        )
 
 
 def train_with_privacy(
@@ -131,7 +228,7 @@ def train_with_privacy(
     data_loader: DataLoader,
     epochs: int = LOCAL_EPOCHS,
     lr: float = LEARNING_RATE,
-) -> tuple[nn.Module, float]:
+) -> tuple[nn.Module, float, float]:
     """
     Full private training loop.
 
@@ -139,7 +236,7 @@ def train_with_privacy(
     and the training loop into one call.
 
     Returns:
-        (trained_model, final_loss)
+        (trained_model, final_loss, epsilon_spent)
     """
     device = next(model.parameters()).device
 
@@ -150,8 +247,8 @@ def train_with_privacy(
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
     # Attach differential privacy
-    model, optimizer, data_loader = attach_privacy_engine(
-        model, optimizer, data_loader, epochs=epochs
+    model, optimizer, data_loader, engine = attach_privacy_engine(
+        model, optimizer, data_loader, epochs=epochs, return_engine=True
     )
 
     model.train()
@@ -176,6 +273,6 @@ def train_with_privacy(
 
         avg_loss = epoch_loss / max(batches, 1)
         final_loss = avg_loss
-        print(f"  [DP] Epoch {epoch + 1}/{epochs} — loss: {avg_loss:.4f}")
+        logger.info("[DP] Epoch %d/%d — loss: %.4f", epoch + 1, epochs, avg_loss)
 
-    return model, final_loss
+    return model, final_loss, get_privacy_spent(engine)["epsilon"]

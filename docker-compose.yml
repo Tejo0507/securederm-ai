@@ -1,12 +1,14 @@
-version: "3.9"
+name: securederm
 
 services:
   aggregator:
     build:
       context: .
       dockerfile: Dockerfile.aggregator
+    # Published on loopback only; hospital nodes reach it over the compose
+    # network. Remove the 127.0.0.1 prefix to accept remote nodes.
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
       - AGGREGATOR_HOST=0.0.0.0
       - AGGREGATOR_PORT=8000
@@ -14,18 +16,22 @@ services:
     volumes:
       # Persisted global model; the web backend's predictor reads it too.
       - ./checkpoints:/app/checkpoints
+    restart: unless-stopped
 
   hospital_a:
     build:
       context: .
       dockerfile: Dockerfile.node
     depends_on:
-      - aggregator
+      aggregator:
+        condition: service_healthy
     environment:
       - AGGREGATOR_HOST=aggregator
       - AGGREGATOR_PORT=8000
+      - NODE_TOKEN=${HOSPITAL_A_TOKEN:-}
     volumes:
-      - ./datasets/hospital_A:/app/datasets/hospital_A
+      - ./datasets/hospital_A:/app/datasets/hospital_A:ro
+      - ./logs/hospital_A:/app/logs
     command: ["--node", "hospital_A", "--rounds", "5"]
 
   hospital_b:
@@ -33,12 +39,15 @@ services:
       context: .
       dockerfile: Dockerfile.node
     depends_on:
-      - aggregator
+      aggregator:
+        condition: service_healthy
     environment:
       - AGGREGATOR_HOST=aggregator
       - AGGREGATOR_PORT=8000
+      - NODE_TOKEN=${HOSPITAL_B_TOKEN:-}
     volumes:
-      - ./datasets/hospital_B:/app/datasets/hospital_B
+      - ./datasets/hospital_B:/app/datasets/hospital_B:ro
+      - ./logs/hospital_B:/app/logs
     command: ["--node", "hospital_B", "--rounds", "5"]
 
   web_backend:
@@ -46,14 +55,12 @@ services:
       context: .
       dockerfile: Dockerfile.web_backend
     ports:
-      - "8001:8001"
+      - "127.0.0.1:8001:8001"
     environment:
-      # JWT_SECRET actually belongs here: web_backend is the only service
-      # that reads it (the aggregator authenticates nodes via its own
-      # per-registration tokens, not JWTs) — it was wired to the wrong
-      # service before this file containerized web_backend at all.
-      - JWT_SECRET=${JWT_SECRET:-change_me}
-      - DATABASE_URL=${DATABASE_URL:-sqlite:////app/securederm.db}
+      # Required: a missing/placeholder secret would let anyone who has read
+      # this file forge session tokens, so compose refuses to start without it.
+      - JWT_SECRET=${JWT_SECRET:?Set JWT_SECRET (python -c "import secrets; print(secrets.token_hex(32))")}
+      - DATABASE_URL=${DATABASE_URL:-sqlite:////app/data/securederm.db}
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
       - SMTP_HOST=${SMTP_HOST:-}
@@ -62,8 +69,24 @@ services:
       - SMTP_PASSWORD=${SMTP_PASSWORD:-}
       - SMTP_FROM_ADDRESS=${SMTP_FROM_ADDRESS:-}
     volumes:
-      # Bind-mounted (not a named volume) so `python -m scripts.backup_db`
-      # on the host can see the same file the container is writing to.
-      - ./securederm.db:/app/securederm.db
+      # A directory (not a single-file bind mount): Docker creates a missing
+      # bind-mount *file* as an empty directory, which breaks SQLite. A
+      # directory also lets the -wal/-shm sidecar files persist alongside.
+      # `python -m scripts.backup_db --source data/securederm.db` reads it.
+      - ./data:/app/data
       - ./datasets/uploads:/app/datasets/uploads
-      - ./checkpoints:/app/checkpoints
+      - ./checkpoints:/app/checkpoints:ro
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./web
+      dockerfile: ../Dockerfile.web
+      args:
+        # Baked into the client bundle: must be the URL the *browser* uses.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8001}
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - web_backend
+    restart: unless-stopped

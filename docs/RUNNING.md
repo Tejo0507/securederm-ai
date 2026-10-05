@@ -121,11 +121,21 @@ If you prefer Docker Compose:
 # Generate data first
 python -m scripts.generate_mock_data
 
+# JWT_SECRET is required (compose refuses to start without it)
+$env:JWT_SECRET = python -c "import secrets; print(secrets.token_hex(32))"
+
 # Start everything
-docker-compose up --build
+docker compose up --build
 ```
 
-This starts the aggregator + both hospital nodes automatically.
+This starts the aggregator, both hospital nodes, the web backend
+(http://localhost:8001) and the web frontend (http://localhost:3000).
+Published ports are bound to `127.0.0.1`; containers run as an unprivileged
+user. The SQLite database lives in `./data/`, and the aggregator's global
+model in `./checkpoints/`. To point the frontend at a different API URL, set
+`NEXT_PUBLIC_API_URL` before `docker compose build` (it is baked into the
+client bundle). If a node container restarts while its `hospital_id` is still
+registered, pass that node's token via `HOSPITAL_A_TOKEN` / `HOSPITAL_B_TOKEN`.
 
 ---
 
@@ -147,5 +157,10 @@ Notes:
   model without a node token. Leave it unset to disable admin access.
 - The global model is saved to `checkpoints/global_model.pt` after every
   round and restored on startup (disable with `AGGREGATOR_PERSIST=false`).
+- Each node keeps a privacy ledger in `logs/privacy_ledger_<node>.json` and
+  stops (exit code 2) once `DP_TOTAL_EPSILON_BUDGET` (default 100, 0 = off) is
+  spent across rounds.
+- Prediction tuning: `INFERENCE_TEMPERATURE` (see the suggestion printed by
+  `python -m scripts.evaluate_global_model`) and `INFERENCE_TTA=true`.
 - A restarted node whose `hospital_id` is still registered must set the
   `NODE_TOKEN` environment variable to its current token to re-register.

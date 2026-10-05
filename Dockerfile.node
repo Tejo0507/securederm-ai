@@ -1,17 +1,30 @@
 # ── Hospital Training Node ───────────────────────────────────────────
 FROM python:3.11-slim
 
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
+RUN pip install --no-cache-dir torch torchvision --index-url ${TORCH_INDEX_URL}
+
+COPY requirements-service.txt .
+RUN pip install --no-cache-dir -r requirements-service.txt
 
 COPY config/ config/
 COPY model/ model/
 COPY hospital_node/ hospital_node/
 COPY __init__.py .
 
-# Dataset is mounted at runtime:
+# The node only reads its dataset and writes its privacy ledger (logs/).
+RUN useradd --system --uid 10001 --no-create-home app \
+    && mkdir -p datasets logs \
+    && chown -R app:app /app
+USER app
+
+# Dataset is mounted at runtime (read-only is fine):
 #   docker run -v /path/to/data:/app/datasets hospital-node --node hospital_A
 VOLUME /app/datasets
 

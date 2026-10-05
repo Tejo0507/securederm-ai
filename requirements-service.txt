@@ -1,0 +1,19 @@
+# Runtime dependencies for the Docker images (aggregator, hospital node, web
+# backend). requirements.txt additionally carries dev/demo tooling
+# (matplotlib, pandas, scikit-learn, opencv, tqdm) that none of the services
+# import; leaving it out keeps the images smaller and drops opencv, whose
+# wheel needs system GUI libraries that python:slim does not ship.
+fastapi==0.141.1
+uvicorn==0.34.0
+email-validator>=2.0.0
+sqlalchemy>=2.0.0
+numpy>=1.24.0
+pillow>=10.0.0
+opacus>=1.4.0
+requests>=2.31.0
+pydantic>=2.0.0
+python-multipart>=0.0.6
+# torch / torchvision are installed first from the CPU wheel index in each
+# Dockerfile (see TORCH_INDEX_URL); these constraints just keep them honest.
+torch>=2.0.0
+torchvision>=0.15.0

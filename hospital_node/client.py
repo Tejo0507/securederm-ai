@@ -28,6 +28,7 @@ from config.settings import (
     FEDERATED_ROUNDS,
     KAGGLE_DATASET_DIR,
 )
+from hospital_node.privacy_layer import PrivacyBudgetExceeded
 from hospital_node.train import train_local
 
 logging.basicConfig(
@@ -51,6 +52,7 @@ class HospitalClient:
         self.dataset_path = dataset_path
         self.dataset = dataset  # pre-built Dataset/Subset (Kaggle partitions)
         self.token: str | None = None
+        self.budget_exhausted = False
         self.log = logging.getLogger(f"node.{hospital_id}")
         self.tag = f"[{hospital_id}]"
 
@@ -175,7 +177,14 @@ class HospitalClient:
                 dataset_path=self.dataset_path or None,
                 dataset=self.dataset,
                 global_weights=global_weights,
+                node_id=self.hospital_id,
             )
+        except PrivacyBudgetExceeded as exc:
+            # Retrying can't help: the lifetime budget is spent. Say so
+            # clearly and let main() stop retrying (it checks this flag).
+            self.log.error("%s %s", self.tag, exc)
+            self.budget_exhausted = True
+            return False
         except Exception:
             # Don't take the whole node down (or leak a traceback that may
             # include file paths) over one failed round.
@@ -251,7 +260,7 @@ def main():
         success = False
         for attempt in range(1, MAX_ROUND_ATTEMPTS + 1):
             success = client.run_round(round_num=round_num)
-            if success:
+            if success or client.budget_exhausted:
                 break
             if attempt < MAX_ROUND_ATTEMPTS:
                 logger.warning(
@@ -259,6 +268,9 @@ def main():
                     round_num, attempt, MAX_ROUND_ATTEMPTS, RETRY_DELAY_SECONDS,
                 )
                 time.sleep(RETRY_DELAY_SECONDS)
+        if client.budget_exhausted:
+            logger.error("Stopping: privacy budget exhausted.")
+            sys.exit(2)
         if not success:
             failed_rounds += 1
             logger.error("Round %d failed after %d attempts.", round_num, MAX_ROUND_ATTEMPTS)

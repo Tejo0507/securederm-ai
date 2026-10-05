@@ -70,12 +70,25 @@ SPLIT_SEED = 42
 # if too many real cases get flagged Unknown, raise it if wrong labels
 # are getting through with high confidence.
 OOD_CONFIDENCE_THRESHOLD = 0.55
+# Temperature-scaling divisor applied to logits before softmax (>1 softens an
+# over-confident model; fit it on held-out data, e.g. with
+# `python -m scripts.evaluate_global_model`, which reports a suggestion).
+INFERENCE_TEMPERATURE = float(os.getenv("INFERENCE_TEMPERATURE", "1.0"))
+# Average predictions over the image and its horizontal mirror (2x cost).
+if INFERENCE_TEMPERATURE <= 0:
+    raise ValueError("INFERENCE_TEMPERATURE must be positive.")
+INFERENCE_TTA = os.getenv("INFERENCE_TTA", "false").lower() == "true"
+# How many ranked candidate classes /api/predict returns.
+TOP_K_PREDICTIONS = 3
 
 # ── Differential Privacy (Opacus) ────────────────────────────────────────
 USE_DIFFERENTIAL_PRIVACY = True
 DP_EPSILON = 3.0
 DP_DELTA = 1e-5
 DP_MAX_GRAD_NORM = 1.0
+# Lifetime epsilon a node may spend across all federated rounds (each round
+# costs up to DP_EPSILON). 0 disables enforcement. See PrivacyBudget.
+DP_TOTAL_EPSILON_BUDGET = float(os.getenv("DP_TOTAL_EPSILON_BUDGET", "100"))
 
 # ── Security ─────────────────────────────────────────────────────────────
 # Never fall back to a fixed, source-controlled string here: a hardcoded

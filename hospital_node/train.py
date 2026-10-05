@@ -16,6 +16,7 @@ from torch.utils.data import DataLoader, Dataset
 
 from config.settings import (
     BATCH_SIZE,
+    DP_EPSILON,
     LEARNING_RATE,
     LOCAL_EPOCHS,
     USE_DIFFERENTIAL_PRIVACY,
@@ -33,6 +34,7 @@ def train_local(
     epochs: int = LOCAL_EPOCHS,
     batch_size: int = BATCH_SIZE,
     lr: float = LEARNING_RATE,
+    node_id: Optional[str] = None,
 ) -> dict:
     """
     Run a local training round on hospital data.
@@ -40,11 +42,16 @@ def train_local(
     Provide either `dataset_path` (loads WoundDataset) or `dataset`
     (a pre-built Dataset/Subset for federated partitions).
 
+    With differential privacy on and a `node_id`, the round is charged to
+    that node's persistent PrivacyBudget ledger; a round that would exceed
+    the lifetime budget raises PrivacyBudgetExceeded before any training.
+
     Returns:
         dict with keys:
             "weights"  — updated model state_dict
             "num_samples" — dataset size (needed for weighted averaging)
             "loss"     — final training loss
+            "epsilon"  — privacy spent this round (None without DP)
     """
     device = get_device()
 
@@ -76,9 +83,21 @@ def train_local(
     # Initialize model
     model = build_model(pretrained=(global_weights is None), device=device)
 
+    privacy_engine = None
+    budget = None
+
     # Optionally apply differential privacy via Opacus
     if USE_DIFFERENTIAL_PRIVACY:
-        from hospital_node.privacy_layer import make_model_private, attach_privacy_engine
+        from hospital_node.privacy_layer import (
+            PrivacyBudget,
+            attach_privacy_engine,
+            get_privacy_spent,
+            make_model_private,
+        )
+
+        if node_id:
+            budget = PrivacyBudget(node_id)
+            budget.check(DP_EPSILON)  # fail before spending anything
 
         # Must fix model for Opacus *before* loading weights,
         # because fix() changes layer types (e.g. BatchNorm → GroupNorm).
@@ -90,8 +109,8 @@ def train_local(
             model.load_state_dict(global_weights)
 
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-        model, optimizer, loader = attach_privacy_engine(
-            model, optimizer, loader, epochs=epochs,
+        model, optimizer, loader, privacy_engine = attach_privacy_engine(
+            model, optimizer, loader, epochs=epochs, return_engine=True,
         )
         logger.info("Differential privacy enabled (Opacus)")
     else:
@@ -136,6 +155,14 @@ def train_local(
     # on the other side) shouldn't depend on this node's GPU layout.
     state_dict = {k: v.detach().cpu() for k, v in state_dict.items()}
 
+    # Charge the budget as soon as the data has been touched, even if the run
+    # is then discarded as diverged: the privacy cost was incurred regardless.
+    epsilon_spent = None
+    if privacy_engine is not None:
+        epsilon_spent = get_privacy_spent(privacy_engine)["epsilon"]
+        if budget is not None:
+            budget.record(epsilon_spent)
+
     # A diverged run would be rejected by the aggregator anyway; failing
     # here says why and avoids uploading ~45 MB of NaNs.
     if not math.isfinite(running_loss) or any(
@@ -145,6 +172,7 @@ def train_local(
 
     return {
         "weights": state_dict,
+        "epsilon": epsilon_spent,
         "num_samples": len(dataset),
         "loss": running_loss,
     }

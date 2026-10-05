@@ -20,7 +20,15 @@ export default function ThreeScene() {
     );
     camera.position.z = 5;
 
-    const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+    // The background is decorative: browsers/VMs without WebGL (or users who
+    // asked for reduced motion) must get a plain page, not a crashed one.
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+    } catch {
+      return;
+    }
     renderer.setSize(container.clientWidth, container.clientHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     container.appendChild(renderer.domElement);
@@ -83,9 +91,11 @@ export default function ThreeScene() {
     window.addEventListener("mousemove", onMouseMove);
 
     /* ---------- animate ---------- */
-    let frameId: number;
+    let frameId = 0;
     const animate = () => {
       frameId = requestAnimationFrame(animate);
+      // Don't burn CPU/GPU (O(n²) line search + render) in a background tab.
+      if (document.hidden) return;
 
       const pos = geo.attributes.position.array as Float32Array;
       for (let i = 0; i < COUNT; i++) {
@@ -133,6 +143,7 @@ export default function ThreeScene() {
 
     /* ---------- resize ---------- */
     const onResize = () => {
+      if (!container.clientWidth || !container.clientHeight) return;
       camera.aspect = container.clientWidth / container.clientHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(container.clientWidth, container.clientHeight);
