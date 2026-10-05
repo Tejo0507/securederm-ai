@@ -8,6 +8,7 @@ Supports two dataset formats:
 Also provides utilities for train/val splitting and federated partitioning.
 """
 
+import logging
 from pathlib import Path
 from typing import Optional
 
@@ -16,7 +17,9 @@ from PIL import Image
 from torch.utils.data import Dataset, Subset
 from torchvision import transforms
 
-from config.settings import IMAGE_SIZE, SPLIT_SEED
+from config.settings import CLASS_LABELS, IMAGE_SIZE, NUM_CLASSES, SPLIT_SEED
+
+logger = logging.getLogger("hospital_node.dataset")
 
 # Default label mapping — subfolder name → class index
 LABEL_MAP = {
@@ -148,6 +151,23 @@ class KaggleWoundDataset(Dataset):
         if len(self.samples) == 0:
             raise RuntimeError(f"No images found in {self.root_dir}.")
 
+        # The model's head has NUM_CLASSES outputs and predictions are named
+        # via CLASS_LABELS. A dataset with more folders would make
+        # CrossEntropyLoss fail mid-training with an opaque index error; one
+        # whose folder order differs would silently mislabel predictions.
+        if len(self.class_names) > NUM_CLASSES:
+            raise RuntimeError(
+                f"{self.root_dir} has {len(self.class_names)} class folders but the "
+                f"model has {NUM_CLASSES} outputs."
+            )
+        expected = [CLASS_LABELS[i] for i in range(NUM_CLASSES)]
+        if self.class_names != expected[: len(self.class_names)]:
+            logger.warning(
+                "Dataset class folders %s do not match the model's CLASS_LABELS %s; "
+                "predictions may be reported under the wrong names.",
+                self.class_names, expected,
+            )
+
     def _discover_classes(self) -> None:
         """Find all subdirectories and build label mapping."""
         dirs = sorted([
@@ -194,6 +214,11 @@ def partition_for_hospitals(
     """Split a dataset into roughly equal partitions for federated simulation."""
     import torch
     n = len(dataset)
+    if num_hospitals < 1 or num_hospitals > n:
+        raise ValueError(
+            f"Cannot split {n} samples across {num_hospitals} hospitals "
+            "(every hospital needs at least one sample)."
+        )
     indices = torch.randperm(n, generator=torch.Generator().manual_seed(seed + 1)).tolist()
     chunk = n // num_hospitals
     partitions = []
