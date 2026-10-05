@@ -10,6 +10,8 @@ Usage:
     python -m scripts.run_demo
 """
 
+import os
+import secrets
 import subprocess
 import sys
 import time
@@ -46,10 +48,15 @@ def wait_for_server(url: str, timeout: int = 30) -> bool:
     return False
 
 
-def save_round_metrics(url: str) -> list[dict]:
+def save_round_metrics(url: str, admin_token: str = "") -> list[dict]:
     """Fetch metrics from aggregator and save to JSON."""
     try:
-        resp = requests.get(f"{url}/round/metrics", timeout=10)
+        resp = requests.get(
+            f"{url}/round/metrics",
+            headers={"X-Node-Token": admin_token},
+            timeout=10,
+        )
+        resp.raise_for_status()
         data = resp.json()
         metrics = data.get("metrics", [])
         metrics_path = LOGS_DIR / "round_metrics.json"
@@ -61,18 +68,28 @@ def save_round_metrics(url: str) -> list[dict]:
         return []
 
 
-def save_global_model(url: str) -> bool:
+def save_global_model(url: str, admin_token: str = "") -> bool:
     """Download final global model and save to checkpoints."""
     import base64
     import io
+    import os
     import torch
     try:
-        resp = requests.get(f"{url}/model/latest", timeout=60)
+        # /model/latest requires a token; without it this always got a 403
+        # and the demo never produced a model to evaluate or predict with.
+        resp = requests.get(
+            f"{url}/model/latest",
+            headers={"X-Node-Token": admin_token},
+            timeout=60,
+        )
+        resp.raise_for_status()
         data = resp.json()
         raw = base64.b64decode(data["weights_b64"])
         weights = torch.load(io.BytesIO(raw), map_location="cpu", weights_only=True)
         save_path = CHECKPOINTS_DIR / "global_model.pt"
-        torch.save(weights, save_path)
+        tmp_path = save_path.with_suffix(".pt.tmp")
+        torch.save(weights, tmp_path)
+        os.replace(tmp_path, save_path)  # never leave a half-written model
         logger.info("Global model saved to %s", save_path)
         return True
     except Exception as exc:
@@ -114,10 +131,14 @@ def main():
     try:
         # 1) Start aggregator server
         logger.info("Starting aggregator server ...")
+        # One-off operator credential so this script can read metrics and
+        # the final model without a hospital node's token.
+        admin_token = secrets.token_urlsafe(32)
         server_proc = subprocess.Popen(
             [python, "-m", "aggregator.server"],
             stdout=sys.stdout,
             stderr=sys.stderr,
+            env={**os.environ, "AGGREGATOR_ADMIN_TOKEN": admin_token},
         )
         procs.append(server_proc)
 
@@ -158,9 +179,9 @@ def main():
         logger.info("All clients finished.")
 
         # 5) Save metrics and model
-        metrics = save_round_metrics(AGGREGATOR_URL)
+        metrics = save_round_metrics(AGGREGATOR_URL, admin_token)
         print_training_summary(metrics)
-        save_global_model(AGGREGATOR_URL)
+        save_global_model(AGGREGATOR_URL, admin_token)
 
         # 6) Evaluate global model
         logger.info("Evaluating global model ...")
@@ -192,7 +213,11 @@ def main():
         for p in procs:
             p.terminate()
         for p in procs:
-            p.wait(timeout=5)
+            try:
+                p.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                p.kill()  # a child ignoring SIGTERM must not abort cleanup
+                p.wait()
         logger.info("Demo complete.")
 
 
