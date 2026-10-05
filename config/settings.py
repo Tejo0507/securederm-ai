@@ -47,6 +47,12 @@ AGGREGATOR_HOST = os.getenv("AGGREGATOR_HOST", "127.0.0.1")
 AGGREGATOR_PORT = int(os.getenv("AGGREGATOR_PORT", "8000"))
 AGGREGATOR_URL = f"http://{AGGREGATOR_HOST}:{AGGREGATOR_PORT}"
 FEDERATED_ROUNDS = 5
+# Optional operator credential for the aggregator's read-only admin views
+# (round metrics, final model download) — lets scripts such as run_demo read
+# them without holding a hospital node's token. Unset = admin access off.
+AGGREGATOR_ADMIN_TOKEN = os.getenv("AGGREGATOR_ADMIN_TOKEN", "")
+# Persist the global model across aggregator restarts (see aggregator.server).
+AGGREGATOR_PERSIST = os.getenv("AGGREGATOR_PERSIST", "true").lower() != "false"
 
 # ── Dataset Split ────────────────────────────────────────────────────────
 TRAIN_SPLIT = 0.8

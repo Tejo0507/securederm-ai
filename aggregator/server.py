@@ -13,7 +13,10 @@ Run with:
 
 import base64
 import io
+import json
 import math
+import os
+import re
 import secrets
 import logging
 from collections import OrderedDict
@@ -23,12 +26,17 @@ from datetime import datetime, timezone
 import torch
 import uvicorn
 from fastapi import FastAPI, HTTPException, Header, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, field_validator
 
 from aggregator.fedavg import federated_average
 from config.settings import (
+    AGGREGATOR_ADMIN_TOKEN,
+    AGGREGATOR_HOST,
+    AGGREGATOR_PERSIST,
     AGGREGATOR_PORT,
+    CHECKPOINTS_DIR,
     FEDERATED_ROUNDS,
     USE_DIFFERENTIAL_PRIVACY,
 )
@@ -47,6 +55,7 @@ pending_updates: list[dict] = []             # updates waiting for aggregation
 model_version: int = 0
 global_weights: OrderedDict | None = None
 round_metrics: list[dict] = []               # per-round metrics history
+_serialized_cache: tuple[int, str] | None = None   # (version, base64 payload)
 
 # Minimum nodes required before aggregation
 MIN_NODES_FOR_AGGREGATION = 2
@@ -95,9 +104,28 @@ async def _unhandled_exception_handler(request: Request, exc: Exception):
 
 
 # ── Request / Response Schemas ───────────────────────────────────────────
+# hospital_id ends up in log lines and the metrics response; restricting it
+# to a conservative charset stops log injection (newlines, control chars)
+# and unbounded-length identifiers.
+_HOSPITAL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]{0,63}$")
+
+
+def _check_hospital_id(v: str) -> str:
+    if not _HOSPITAL_ID_RE.fullmatch(v or ""):
+        raise ValueError(
+            "hospital_id must be 1-64 characters: letters, digits, '_', '-' or '.'"
+        )
+    return v
+
+
 class NodeRegistration(BaseModel):
     hospital_id: str
     dataset_size: int
+
+    @field_validator("hospital_id")
+    @classmethod
+    def _hospital_id_valid(cls, v: str) -> str:
+        return _check_hospital_id(v)
 
     @field_validator("dataset_size")
     @classmethod
@@ -121,10 +149,8 @@ class TrainingUpdate(BaseModel):
 
     @field_validator("hospital_id")
     @classmethod
-    def _hospital_id_not_blank(cls, v: str) -> str:
-        if not v or not v.strip():
-            raise ValueError("hospital_id must not be blank")
-        return v
+    def _hospital_id_valid(cls, v: str) -> str:
+        return _check_hospital_id(v)
 
     @field_validator("num_samples")
     @classmethod
@@ -168,11 +194,16 @@ def _deserialize_weights(b64_string: str) -> OrderedDict:
     return torch.load(buffer, map_location="cpu", weights_only=True)
 
 
-def _check_weights_compatible(weights: OrderedDict) -> str | None:
+def _check_weights_compatible(
+    weights: OrderedDict, reference: OrderedDict | None = None
+) -> str | None:
     """Return an error message if `weights` can't be averaged into the global model."""
-    if global_weights is None:
+    reference = global_weights if reference is None else reference
+    if reference is None:
         return None
-    for key, ref in global_weights.items():
+    for key, ref in reference.items():
+        if key not in weights:
+            return f"Uploaded weights are missing '{key}'."
         tensor = weights[key]
         if not isinstance(tensor, torch.Tensor) or tensor.shape != ref.shape:
             return f"Uploaded weight '{key}' has the wrong shape."
@@ -186,8 +217,11 @@ def _check_weights_compatible(weights: OrderedDict) -> str | None:
 def _init_global_model() -> None:
     """Create the initial global model if not yet initialized."""
     global global_weights, model_version
-    if global_weights is None:
-        model = build_model(pretrained=True, device="cpu")
+    if global_weights is not None:
+        return
+
+    def _build(pretrained: bool):
+        model = build_model(pretrained=pretrained, device="cpu")
         if USE_DIFFERENTIAL_PRIVACY:
             # DP clients train an Opacus-fixed model (BatchNorm -> GroupNorm),
             # whose state_dict keys differ from the stock ResNet's. The global
@@ -195,9 +229,63 @@ def _init_global_model() -> None:
             # rejected as an architecture mismatch.
             from hospital_node.privacy_layer import make_model_private
             model = make_model_private(model)
-        global_weights = model.state_dict()
-        model_version = 1
-        logger.info("Global model initialized (version %d)", model_version)
+        return model.state_dict()
+
+    restored = _load_persisted_state(_build)
+    if restored is not None:
+        global_weights, model_version = restored
+        logger.info("Global model restored from checkpoint (version %d)", model_version)
+        return
+
+    global_weights = _build(pretrained=True)
+    model_version = 1
+    logger.info("Global model initialized (version %d)", model_version)
+
+
+_CHECKPOINT_PATH = CHECKPOINTS_DIR / "global_model.pt"
+_META_PATH = CHECKPOINTS_DIR / "global_model.meta.json"
+
+
+def _load_persisted_state(build) -> tuple[OrderedDict, int] | None:
+    """Restore (weights, version) saved by _persist_state, or None.
+
+    A checkpoint whose architecture doesn't match the current configuration
+    (e.g. saved before differential privacy was switched on) is ignored
+    rather than served to nodes that would then fail to train from it.
+    """
+    if not AGGREGATOR_PERSIST or not _CHECKPOINT_PATH.exists():
+        return None
+    try:
+        weights = torch.load(_CHECKPOINT_PATH, map_location="cpu", weights_only=True)
+        problem = _check_weights_compatible(weights, build(pretrained=False))
+        if problem:
+            logger.warning("Ignoring saved global model: %s", problem)
+            return None
+        version = 1
+        if _META_PATH.exists():
+            version = int(json.loads(_META_PATH.read_text()).get("model_version", 1))
+        return weights, max(version, 1)
+    except Exception:
+        logger.exception("Could not restore saved global model; starting fresh.")
+        return None
+
+
+def _persist_state() -> None:
+    """Atomically save the global model (and its version) so a restart
+    doesn't discard every completed round. Also gives the web backend's
+    predictor (which loads checkpoints/global_model.pt) a model to serve."""
+    if not AGGREGATOR_PERSIST or global_weights is None:
+        return
+    try:
+        CHECKPOINTS_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = _CHECKPOINT_PATH.with_suffix(".pt.tmp")
+        torch.save(global_weights, tmp)
+        os.replace(tmp, _CHECKPOINT_PATH)
+        meta_tmp = _META_PATH.with_suffix(".json.tmp")
+        meta_tmp.write_text(json.dumps({"model_version": model_version}))
+        os.replace(meta_tmp, _META_PATH)
+    except Exception:
+        logger.exception("Could not persist global model checkpoint.")
 
 
 def _validate_token(hospital_id: str, token: str) -> bool:
@@ -206,6 +294,17 @@ def _validate_token(hospital_id: str, token: str) -> bool:
     if node is None:
         return False
     return secrets.compare_digest(node["token"], token or "")
+
+
+def _is_admin_token(token: str | None) -> bool:
+    return bool(AGGREGATOR_ADMIN_TOKEN) and bool(token) and secrets.compare_digest(
+        AGGREGATOR_ADMIN_TOKEN, token
+    )
+
+
+def _is_authorized(token: str | None) -> bool:
+    """A registered node's token, or the operator's admin token."""
+    return _validate_any_token(token) or _is_admin_token(token)
 
 
 def _validate_any_token(token: str | None) -> bool:
@@ -345,6 +444,7 @@ async def submit_update(
             "num_nodes": len(pending_updates),
         })
         pending_updates.clear()
+        await run_in_threadpool(_persist_state)
         aggregated = True
         logger.info(
             "[Aggregator] Round %d | Nodes: %d | Avg Loss: %.4f",
@@ -363,16 +463,20 @@ async def submit_update(
 
 @app.get("/model/latest", response_model=ModelResponse)
 async def get_latest_model(x_node_token: str | None = Header(None, alias="X-Node-Token")):
-    """Serve the latest global model weights to a registered node."""
-    if not _validate_any_token(x_node_token):
+    """Serve the latest global model weights to a registered node (or the operator)."""
+    if not _is_authorized(x_node_token):
         raise HTTPException(status_code=403, detail="Invalid node token.")
     if global_weights is None:
         raise HTTPException(status_code=503, detail="Global model not initialized.")
 
-    weights_b64 = _serialize_weights(global_weights)
+    # Serializing ~45 MB of tensors per request is wasteful when every node
+    # downloads the same version; cache the encoded payload per version.
+    global _serialized_cache
+    if _serialized_cache is None or _serialized_cache[0] != model_version:
+        _serialized_cache = (model_version, _serialize_weights(global_weights))
     return ModelResponse(
         model_version=model_version,
-        weights_b64=weights_b64,
+        weights_b64=_serialized_cache[1],
     )
 
 
@@ -388,8 +492,14 @@ async def server_status():
 
 
 @app.get("/round/metrics")
-async def get_round_metrics():
-    """Return per-round aggregation metrics."""
+async def get_round_metrics(x_node_token: str | None = Header(None, alias="X-Node-Token")):
+    """Return per-round aggregation metrics.
+
+    Requires a node (or admin) token: the metrics list which hospitals
+    took part in each round, which shouldn't be public.
+    """
+    if not _is_authorized(x_node_token):
+        raise HTTPException(status_code=403, detail="Invalid node token.")
     return {
         "current_round": model_version - 1,
         "total_rounds": FEDERATED_ROUNDS,
@@ -401,7 +511,10 @@ async def get_round_metrics():
 if __name__ == "__main__":
     uvicorn.run(
         "aggregator.server:app",
-        host="0.0.0.0",
+        # Loopback unless AGGREGATOR_HOST says otherwise (docker-compose sets
+        # 0.0.0.0): binding every interface by default exposed the server to
+        # the whole network.
+        host=AGGREGATOR_HOST,
         port=AGGREGATOR_PORT,
         reload=False,
         log_level="info",

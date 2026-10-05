@@ -161,6 +161,70 @@ class TestUpdateValidation:
         )
 
 
+class TestMetricsAndAdminAccess:
+    def test_round_metrics_requires_a_token(self, client):
+        assert client.get("/round/metrics").status_code == 403
+
+    def test_round_metrics_with_node_token(self, client):
+        token = client.post("/node/register", json={
+            "hospital_id": "metrics_node", "dataset_size": 5,
+        }).json()["node_token"]
+        resp = client.get("/round/metrics", headers={"X-Node-Token": token})
+        assert resp.status_code == 200
+        assert "metrics" in resp.json()
+
+    def test_admin_token_reads_metrics_and_model(self, client, monkeypatch):
+        import aggregator.server as server_module
+
+        monkeypatch.setattr(server_module, "AGGREGATOR_ADMIN_TOKEN", "operator-secret")
+        headers = {"X-Node-Token": "operator-secret"}
+        assert client.get("/round/metrics", headers=headers).status_code == 200
+        assert client.get("/model/latest", headers=headers).status_code == 200
+        assert client.get(
+            "/model/latest", headers={"X-Node-Token": "wrong"}
+        ).status_code == 403
+
+    def test_admin_access_is_off_when_token_unset(self, client, monkeypatch):
+        import aggregator.server as server_module
+
+        monkeypatch.setattr(server_module, "AGGREGATOR_ADMIN_TOKEN", "")
+        assert client.get("/round/metrics", headers={"X-Node-Token": ""}).status_code == 403
+
+
+class TestHospitalIdValidation:
+    @pytest.mark.parametrize("bad", ["", "  ", "a\nb", "has space", "x" * 65, "../etc"])
+    def test_register_rejects_unsafe_ids(self, client, bad):
+        resp = client.post("/node/register", json={"hospital_id": bad, "dataset_size": 5})
+        assert resp.status_code == 422
+
+
+class TestPersistence:
+    def test_state_round_trips_and_mismatch_is_ignored(self, tmp_path, monkeypatch):
+        import torch
+        import aggregator.server as server_module
+
+        monkeypatch.setattr(server_module, "AGGREGATOR_PERSIST", True)
+        monkeypatch.setattr(server_module, "CHECKPOINTS_DIR", tmp_path)
+        monkeypatch.setattr(server_module, "_CHECKPOINT_PATH", tmp_path / "g.pt")
+        monkeypatch.setattr(server_module, "_META_PATH", tmp_path / "g.json")
+        monkeypatch.setattr(server_module, "model_version", 7)
+
+        server_module._persist_state()
+        assert (tmp_path / "g.pt").exists()
+        assert not list(tmp_path.glob("*.tmp"))
+
+        restored = server_module._load_persisted_state(
+            lambda pretrained: server_module.global_weights
+        )
+        assert restored is not None and restored[1] == 7
+
+        # A checkpoint with a different architecture is not served.
+        torch.save({"unrelated": torch.zeros(1)}, tmp_path / "g.pt")
+        assert server_module._load_persisted_state(
+            lambda pretrained: server_module.global_weights
+        ) is None
+
+
 class TestNodeRegistrationHijack:
     def test_cannot_reregister_without_existing_token(self, client):
         first = client.post("/node/register", json={
