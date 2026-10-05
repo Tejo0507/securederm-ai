@@ -133,6 +133,7 @@ export default function SignupPage() {
               type="text"
               required
               value={form.name}
+              maxLength={200}
               onChange={(e) => update("name", e.target.value)}
               className="w-full px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all"
               placeholder="City General Hospital"
@@ -160,6 +161,7 @@ export default function SignupPage() {
                 type={showPassword ? "text" : "password"}
                 required
                 minLength={MIN_PASSWORD_LENGTH}
+                maxLength={200}
                 value={form.password}
                 onChange={(e) => update("password", e.target.value)}
                 className="w-full px-4 py-2.5 pr-16 rounded-lg bg-white/5 border border-white/10 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all"
@@ -207,6 +209,7 @@ export default function SignupPage() {
             <input
               type="text"
               value={form.location}
+              maxLength={200}
               onChange={(e) => update("location", e.target.value)}
               className="w-full px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all"
               placeholder="San Francisco, CA"
