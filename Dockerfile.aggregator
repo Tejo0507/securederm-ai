@@ -8,6 +8,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY config/ config/
 COPY model/ model/
+# aggregator.server builds the same Opacus-compatible architecture the
+# nodes train, via hospital_node.privacy_layer.
+COPY hospital_node/ hospital_node/
 COPY aggregator/ aggregator/
 COPY __init__.py .
 
