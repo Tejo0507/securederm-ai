@@ -76,6 +76,9 @@ USE_DIFFERENTIAL_PRIVACY = True
 DP_EPSILON = 3.0
 DP_DELTA = 1e-5
 DP_MAX_GRAD_NORM = 1.0
+# Lifetime epsilon a node may spend across all federated rounds (each round
+# costs up to DP_EPSILON). 0 disables enforcement. See PrivacyBudget.
+DP_TOTAL_EPSILON_BUDGET = float(os.getenv("DP_TOTAL_EPSILON_BUDGET", "100"))
 
 # ── Security ─────────────────────────────────────────────────────────────
 # Never fall back to a fixed, source-controlled string here: a hardcoded
