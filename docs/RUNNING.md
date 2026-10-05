@@ -121,11 +121,21 @@ If you prefer Docker Compose:
 # Generate data first
 python -m scripts.generate_mock_data
 
+# JWT_SECRET is required (compose refuses to start without it)
+$env:JWT_SECRET = python -c "import secrets; print(secrets.token_hex(32))"
+
 # Start everything
-docker-compose up --build
+docker compose up --build
 ```
 
-This starts the aggregator + both hospital nodes automatically.
+This starts the aggregator, both hospital nodes, the web backend
+(http://localhost:8001) and the web frontend (http://localhost:3000).
+Published ports are bound to `127.0.0.1`; containers run as an unprivileged
+user. The SQLite database lives in `./data/`, and the aggregator's global
+model in `./checkpoints/`. To point the frontend at a different API URL, set
+`NEXT_PUBLIC_API_URL` before `docker compose build` (it is baked into the
+client bundle). If a node container restarts while its `hospital_id` is still
+registered, pass that node's token via `HOSPITAL_A_TOKEN` / `HOSPITAL_B_TOKEN`.
 
 ---
 
