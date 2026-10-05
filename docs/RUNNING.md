@@ -135,5 +135,17 @@ This starts the aggregator + both hospital nodes automatically.
 |-----------------------|--------|--------------------------------|
 | `/node/register`      | POST   | Register a hospital node       |
 | `/training/update`    | POST   | Upload model weight updates    |
-| `/model/latest`       | GET    | Download latest global model   |
+| `/model/latest`       | GET    | Download latest global model (node or admin token) |
+| `/round/metrics`      | GET    | Per-round metrics (node or admin token) |
 | `/status`             | GET    | Server health check            |
+
+Notes:
+
+- The aggregator binds to `AGGREGATOR_HOST` (default `127.0.0.1`). Set it to
+  `0.0.0.0` only when nodes connect from other machines.
+- `AGGREGATOR_ADMIN_TOKEN` (optional) lets an operator read metrics and the
+  model without a node token. Leave it unset to disable admin access.
+- The global model is saved to `checkpoints/global_model.pt` after every
+  round and restored on startup (disable with `AGGREGATOR_PERSIST=false`).
+- A restarted node whose `hospital_id` is still registered must set the
+  `NODE_TOKEN` environment variable to its current token to re-register.
