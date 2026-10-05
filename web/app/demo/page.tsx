@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   LineChart,
@@ -49,6 +49,16 @@ export default function DemoPage() {
     setLog((prev) => [...prev.slice(-30), msg]);
   }, []);
 
+  // The loop below sleeps ~30 s in total; without this flag it keeps calling
+  // setState (and never stops) after the user navigates away.
+  const cancelled = useRef(false);
+  useEffect(() => {
+    cancelled.current = false;
+    return () => {
+      cancelled.current = true;
+    };
+  }, []);
+
   /* ---------- simulation loop ---------- */
   const runSimulation = useCallback(async () => {
     setRunning(true);
@@ -57,6 +67,7 @@ export default function DemoPage() {
     setRound(0);
 
     for (let r = 1; r <= TOTAL_ROUNDS; r++) {
+      if (cancelled.current) return;
       setRound(r);
 
       /* phase 1: local training */
@@ -85,6 +96,7 @@ export default function DemoPage() {
       await sleep(1500);
     }
 
+    if (cancelled.current) return;
     setPhase("idle");
     setActiveNodes([]);
     addLog("✓ Simulation complete! Global model is ready.");
