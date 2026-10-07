@@ -444,7 +444,69 @@ class TestUploadFilenameEdgeCases:
         assert resp.json()["uploaded"] == (1 if name.endswith("evil.png") else 0)
 
 
+class TestNetworkListingsRequireAuth:
+    @pytest.mark.parametrize(
+        "path", ["/api/hospitals", "/api/federated/rounds", "/api/training/metrics"]
+    )
+    def test_network_data_is_not_public(self, client, path):
+        # These list other hospitals' names/locations and who took part in
+        # each round; they were readable by anyone on the internet.
+        assert client.get(path).status_code == 401
+
+    def test_models_marketplace_stays_public(self, client):
+        assert client.get("/api/models").status_code == 200
+
+
+class TestUploadQuota:
+    def test_upload_stops_at_the_per_hospital_cap(self, client, monkeypatch):
+        from web_backend.routers import hospital_router
+
+        monkeypatch.setattr(hospital_router, "MAX_IMAGES_PER_HOSPITAL", 1)
+        _signup_and_verify(client, email="quota@example.com", password="correcthorse1")
+        buf = io.BytesIO()
+        Image.new("RGB", (8, 8)).save(buf, format="PNG")
+        png = buf.getvalue()
+        headers = _csrf_headers(client)
+
+        first = client.post("/api/datasets/upload", headers=headers,
+                            files={"files": ("one.png", png, "image/png")})
+        assert first.status_code == 200
+        second = client.post("/api/datasets/upload", headers=headers,
+                             files={"files": ("two.png", png, "image/png")})
+        assert second.status_code == 413
+        # Overwriting an existing file doesn't add to the count.
+        again = client.post("/api/datasets/upload", headers=headers,
+                            files={"files": ("one.png", png, "image/png")})
+        assert again.status_code == 200
+
+
+class TestUploadedImageLimits:
+    def test_decompression_bomb_is_rejected_cleanly(self, client):
+        from PIL import Image as PILImage
+        from web_backend import image_validation
+
+        buf = io.BytesIO()
+        PILImage.new("1", (9000, 9000)).save(buf, format="PNG")  # tiny file, 81M pixels
+        assert len(buf.getvalue()) < 100_000
+        assert image_validation.is_genuine_image(buf.getvalue()) is False
+
+    def test_normal_image_still_accepted(self):
+        from PIL import Image as PILImage
+        from web_backend import image_validation
+
+        buf = io.BytesIO()
+        PILImage.new("RGB", (64, 64)).save(buf, format="PNG")
+        assert image_validation.is_genuine_image(buf.getvalue()) is True
+
+
 class TestListEndpointPagination:
+    @pytest.fixture(autouse=True)
+    def _signed_in(self, client, request):
+        # Unique per test: the database persists across tests in a run.
+        _signup_and_verify(
+            client, email=f"pager-{request.node.name}@example.com", password="correcthorse1"
+        )
+
     def test_hospitals_default_and_capped_page_size(self, client):
         for i in range(5):
             _signup(client, email=f"pageuser{i}@example.com")
