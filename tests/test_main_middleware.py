@@ -21,6 +21,23 @@ def client():
         yield c
 
 
+class TestHealthCheck:
+    def test_healthy_when_database_reachable(self, client):
+        assert client.get("/api/health").json()["status"] == "ok"
+
+    def test_reports_503_when_database_is_down(self, client, monkeypatch):
+        import web_backend.main as main_module
+
+        class _BrokenEngine:
+            def connect(self):
+                raise RuntimeError("db down")
+
+        monkeypatch.setattr(main_module, "engine", _BrokenEngine())
+        resp = client.get("/api/health")
+        assert resp.status_code == 503
+        assert resp.json() == {"status": "unavailable"}  # no internals leaked
+
+
 class TestSecurityHeaders:
     def test_security_headers_present_on_every_response(self, client):
         resp = client.get("/api/health")
