@@ -20,6 +20,7 @@ export default function ModelsPage() {
   const [models, setModels] = useState<Model[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
 
   useEffect(() => {
     apiFetch<Model[]>("/api/models")
@@ -81,7 +82,11 @@ export default function ModelsPage() {
                         v{m.version}
                       </span>
                     </div>
-                    <p className="mt-3 text-xs text-zinc-400 leading-relaxed">
+                    <p
+                      className={`mt-3 text-xs text-zinc-400 leading-relaxed ${
+                        expandedId === m.id ? "" : "line-clamp-3"
+                      }`}
+                    >
                       {m.description}
                     </p>
                   </div>
@@ -101,8 +106,12 @@ export default function ModelsPage() {
                         </div>
                       </div>
                     </div>
-                    <button className="px-3 py-1.5 text-xs rounded-lg bg-indigo-600/20 border border-indigo-500/30 text-indigo-300 hover:bg-indigo-600/30 transition-colors">
-                      Details
+                    <button
+                      onClick={() => setExpandedId(expandedId === m.id ? null : m.id)}
+                      aria-expanded={expandedId === m.id}
+                      className="px-3 py-1.5 text-xs rounded-lg bg-indigo-600/20 border border-indigo-500/30 text-indigo-300 hover:bg-indigo-600/30 transition-colors"
+                    >
+                      {expandedId === m.id ? "Less" : "Details"}
                     </button>
                   </div>
                 </motion.div>

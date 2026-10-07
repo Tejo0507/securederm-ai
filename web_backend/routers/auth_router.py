@@ -25,6 +25,7 @@ from web_backend.auth import (
     enforce_auth_rate_limit,
     set_session_cookies,
     clear_session_cookies,
+    SESSION_COOKIE_NAME,
     verify_csrf,
     generate_email_verification_token,
     hash_email_verification_token,
@@ -191,12 +192,14 @@ async def login(
 
 
 @router.post("/logout")
-async def logout(
-    response: Response,
-    request: Request,
-    hospital: Hospital = Depends(get_current_hospital),
-):
-    verify_csrf(request)
+async def logout(response: Response, request: Request):
+    # Deliberately does not require a *valid* session: with an expired or
+    # revoked one, a get_current_hospital dependency answered 401 and the
+    # stale cookies could never be cleared. CSRF is still enforced whenever
+    # a session cookie is actually present, so a third-party page can't
+    # silently log a user out.
+    if request.cookies.get(SESSION_COOKIE_NAME):
+        verify_csrf(request)
     clear_session_cookies(response)
     return {"status": "logged_out"}
 
