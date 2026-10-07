@@ -159,7 +159,10 @@ async def training_status(hospital: Hospital = Depends(get_current_hospital)):
 
 
 @router.get("/training/metrics")
-async def training_metrics(db: Session = Depends(get_db)):
+async def training_metrics(
+    _hospital: Hospital = Depends(get_current_hospital),
+    db: Session = Depends(get_db),
+):
     # Always the persisted network-wide history (FederatedRound), not the
     # in-memory `_training_state` — that's per-hospital now, and "recent
     # rounds across the network" is supposed to be shared, unlike a live
@@ -180,7 +183,10 @@ async def training_metrics(db: Session = Depends(get_db)):
 
 
 @router.get("/federated/rounds")
-async def federated_rounds(db: Session = Depends(get_db)):
+async def federated_rounds(
+    _hospital: Hospital = Depends(get_current_hospital),
+    db: Session = Depends(get_db),
+):
     rounds = (
         db.query(FederatedRound)
         .order_by(FederatedRound.round_number.desc())

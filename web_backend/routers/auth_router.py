@@ -76,7 +76,9 @@ async def signup(
     hospital = Hospital(
         name=payload.name,
         email=payload.email,
-        password_hash=hash_password(payload.password),
+        # 600k PBKDF2 rounds take a few hundred ms of pure CPU; run inline in
+        # an async handler it would freeze every other request meanwhile.
+        password_hash=await run_in_threadpool(hash_password, payload.password),
         location=payload.location,
         email_verified=False,
     )
@@ -176,7 +178,7 @@ async def login(
     # password does, letting an attacker enumerate registered emails by
     # timing the login endpoint.
     hash_to_check = hospital.password_hash if hospital else DUMMY_PASSWORD_HASH
-    password_ok = verify_password(payload.password, hash_to_check)
+    password_ok = await run_in_threadpool(verify_password, payload.password, hash_to_check)
     if not hospital or not password_ok:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
