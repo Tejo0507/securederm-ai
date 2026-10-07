@@ -184,6 +184,14 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 @app.get("/api/health")
 async def health():
+    # Actually touch the database: a health check that always says "ok" keeps
+    # a container looking healthy while every real request fails.
+    try:
+        with engine.connect() as conn:
+            conn.exec_driver_sql("SELECT 1")
+    except Exception:
+        logger.exception("Health check: database unreachable")
+        return JSONResponse(status_code=503, content={"status": "unavailable"})
     return {"status": "ok", "service": "SecureDerm AI Platform"}
 
 
