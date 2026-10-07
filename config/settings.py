@@ -51,6 +51,12 @@ FEDERATED_ROUNDS = 5
 # (round metrics, final model download) — lets scripts such as run_demo read
 # them without holding a hospital node's token. Unset = admin access off.
 AGGREGATOR_ADMIN_TOKEN = os.getenv("AGGREGATOR_ADMIN_TOKEN", "")
+# Optional shared secret a new hospital must present (X-Registration-Key) to
+# register with the aggregator. Without it anyone who can reach the port can
+# enrol a node, receive a token and download the global model.
+AGGREGATOR_REGISTRATION_KEY = os.getenv("AGGREGATOR_REGISTRATION_KEY", "")
+# Upper bound on enrolled nodes, so open registration can't grow memory forever.
+AGGREGATOR_MAX_NODES = int(os.getenv("AGGREGATOR_MAX_NODES", "1000"))
 # Persist the global model across aggregator restarts (see aggregator.server).
 AGGREGATOR_PERSIST = os.getenv("AGGREGATOR_PERSIST", "true").lower() != "false"
 
