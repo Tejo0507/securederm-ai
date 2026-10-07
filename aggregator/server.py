@@ -11,6 +11,7 @@ Run with:
     python -m aggregator.server
 """
 
+import asyncio
 import base64
 import io
 import json
@@ -34,8 +35,10 @@ from aggregator.fedavg import federated_average
 from config.settings import (
     AGGREGATOR_ADMIN_TOKEN,
     AGGREGATOR_HOST,
+    AGGREGATOR_MAX_NODES,
     AGGREGATOR_PERSIST,
     AGGREGATOR_PORT,
+    AGGREGATOR_REGISTRATION_KEY,
     CHECKPOINTS_DIR,
     FEDERATED_ROUNDS,
     USE_DIFFERENTIAL_PRIVACY,
@@ -56,6 +59,7 @@ model_version: int = 0
 global_weights: OrderedDict | None = None
 round_metrics: list[dict] = []               # per-round metrics history
 _serialized_cache: tuple[int, str] | None = None   # (version, base64 payload)
+_aggregation_lock = asyncio.Lock()   # serializes pending_updates / global model changes
 
 # Minimum nodes required before aggregation
 MIN_NODES_FOR_AGGREGATION = 2
@@ -322,8 +326,13 @@ def _validate_any_token(token: str | None) -> bool:
 async def register_node(
     payload: NodeRegistration,
     x_node_token: str | None = Header(None, alias="X-Node-Token"),
+    x_registration_key: str | None = Header(None, alias="X-Registration-Key"),
 ):
     """Register a hospital node and issue an access token.
+
+    When AGGREGATOR_REGISTRATION_KEY is set, enrolling a *new* node also
+    requires that key (X-Registration-Key); re-registering an existing node
+    is authenticated by its current token instead.
 
     A hospital_id that is already registered can only be re-registered
     (to rotate its token, e.g. after a restart) by presenting its
@@ -336,6 +345,15 @@ async def register_node(
         raise HTTPException(status_code=400, detail="hospital_id must not be blank")
 
     existing = registered_nodes.get(hospital_id)
+
+    if existing is None:
+        if AGGREGATOR_REGISTRATION_KEY and not secrets.compare_digest(
+            AGGREGATOR_REGISTRATION_KEY, x_registration_key or ""
+        ):
+            raise HTTPException(status_code=403, detail="Invalid registration key.")
+        if len(registered_nodes) >= AGGREGATOR_MAX_NODES:
+            raise HTTPException(status_code=503, detail="Node limit reached.")
+
     if existing is not None and not secrets.compare_digest(
         existing["token"], x_node_token or ""
     ):
@@ -384,8 +402,10 @@ async def submit_update(
         raise HTTPException(status_code=403, detail="Invalid node token.")
 
     # Deserialize and store the update
+    # Decoding ~45 MB and scanning every tensor is seconds of CPU; do it in a
+    # worker thread so status checks and other nodes' requests keep flowing.
     try:
-        weights = _deserialize_weights(payload.model_weights_b64)
+        weights = await run_in_threadpool(_deserialize_weights, payload.model_weights_b64)
     except Exception:
         raise HTTPException(
             status_code=400, detail="Could not deserialize model_weights_b64."
@@ -400,64 +420,73 @@ async def submit_update(
             detail="Uploaded weights do not match the global model's architecture.",
         )
 
-    problem = _check_weights_compatible(weights)
+    problem = await run_in_threadpool(_check_weights_compatible, weights)
     if problem:
         raise HTTPException(status_code=400, detail=problem)
 
-    # One pending update per node: a node resubmitting before the round
-    # closes replaces its earlier update instead of counting twice (which
-    # would let a single node satisfy MIN_NODES_FOR_AGGREGATION alone).
-    pending_updates[:] = [
-        u for u in pending_updates if u["hospital_id"] != payload.hospital_id
-    ]
-    pending_updates.append({
-        "hospital_id": payload.hospital_id,
-        "weights": weights,
-        "num_samples": payload.num_samples,
-        "loss": payload.training_loss,
-    })
-
-    logger.info(
-        "Update received from %s (loss=%.4f, samples=%d). Pending: %d",
-        payload.hospital_id,
-        payload.training_loss,
-        payload.num_samples,
-        len(pending_updates),
-    )
-
-    # Check if we have enough updates to aggregate
-    aggregated = False
-    if len(pending_updates) >= MIN_NODES_FOR_AGGREGATION:
-        avg_loss = sum(u["loss"] for u in pending_updates) / len(pending_updates)
-        node_names = [u["hospital_id"] for u in pending_updates]
-        try:
-            global_weights = federated_average(pending_updates)
-        except ValueError as exc:
-            logger.error("Aggregation failed, discarding pending updates: %s", exc)
-            pending_updates.clear()
-            raise HTTPException(status_code=400, detail="Aggregation failed.")
-        model_version += 1
-        round_metrics.append({
-            "round": model_version - 1,
-            "nodes": node_names,
-            "avg_loss": round(avg_loss, 4),
-            "num_nodes": len(pending_updates),
+    # Everything that touches pending_updates / the global model happens under
+    # one lock: aggregation now awaits a worker thread, so without it two
+    # concurrent uploads could both see "enough updates" and aggregate the
+    # same batch twice (or append into a list that is being cleared).
+    async with _aggregation_lock:
+        # One pending update per node: a node resubmitting before the round
+        # closes replaces its earlier update instead of counting twice (which
+        # would let a single node satisfy MIN_NODES_FOR_AGGREGATION alone).
+        pending_updates[:] = [
+            u for u in pending_updates if u["hospital_id"] != payload.hospital_id
+        ]
+        pending_updates.append({
+            "hospital_id": payload.hospital_id,
+            "weights": weights,
+            "num_samples": payload.num_samples,
+            "loss": payload.training_loss,
         })
-        pending_updates.clear()
-        await run_in_threadpool(_persist_state)
-        aggregated = True
+
         logger.info(
-            "[Aggregator] Round %d | Nodes: %d | Avg Loss: %.4f",
-            model_version - 1,
-            len(node_names),
-            avg_loss,
+            "Update received from %s (loss=%.4f, samples=%d). Pending: %d",
+            payload.hospital_id,
+            payload.training_loss,
+            payload.num_samples,
+            len(pending_updates),
         )
+
+        # Check if we have enough updates to aggregate
+        aggregated = False
+        if len(pending_updates) >= MIN_NODES_FOR_AGGREGATION:
+            batch = list(pending_updates)
+            avg_loss = sum(u["loss"] for u in batch) / len(batch)
+            node_names = [u["hospital_id"] for u in batch]
+            try:
+                global_weights = await run_in_threadpool(federated_average, batch)
+            except ValueError as exc:
+                logger.error("Aggregation failed, discarding pending updates: %s", exc)
+                pending_updates.clear()
+                raise HTTPException(status_code=400, detail="Aggregation failed.")
+            model_version += 1
+            round_metrics.append({
+                "round": model_version - 1,
+                "nodes": node_names,
+                "avg_loss": round(avg_loss, 4),
+                "num_nodes": len(batch),
+            })
+            pending_updates.clear()
+            await run_in_threadpool(_persist_state)
+            aggregated = True
+            logger.info(
+                "[Aggregator] Round %d | Nodes: %d | Avg Loss: %.4f",
+                model_version - 1,
+                len(node_names),
+                avg_loss,
+            )
+
+        response_pending = len(pending_updates)
+        response_version = model_version
 
     return TrainingUpdateResponse(
         status="accepted",
-        pending_updates=len(pending_updates),
+        pending_updates=response_pending,
         aggregated=aggregated,
-        model_version=model_version,
+        model_version=response_version,
     )
 
 
