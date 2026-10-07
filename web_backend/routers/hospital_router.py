@@ -17,6 +17,7 @@ UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", str(_DEFAULT_UPLOAD_DIR)))
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_FILES_PER_REQUEST = 100
+MAX_IMAGES_PER_HOSPITAL = 20_000
 DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 100
 
@@ -40,6 +41,8 @@ async def upload_dataset(
     hospital_dir = UPLOAD_DIR / str(hospital.id)
     hospital_dir.mkdir(parents=True, exist_ok=True)
 
+    existing_count = sum(1 for p in hospital_dir.iterdir() if p.is_file())
+
     saved = 0
     for f in files:
         if not f.filename:
@@ -57,6 +60,14 @@ async def upload_dataset(
         if not safe_name or safe_name in (".", ".."):
             continue
         dest = hospital_dir / safe_name
+        if not dest.exists():
+            # Per-hospital cap so one account can't fill the server's disk.
+            if existing_count >= MAX_IMAGES_PER_HOSPITAL:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"Dataset limit reached ({MAX_IMAGES_PER_HOSPITAL} images).",
+                )
+            existing_count += 1
         with open(dest, "wb") as out:
             out.write(content)
         saved += 1
@@ -141,6 +152,7 @@ async def list_models(
 
 @router.get("/hospitals")
 async def list_hospitals(
+    _hospital: Hospital = Depends(get_current_hospital),
     db: Session = Depends(get_db),
     limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
     offset: int = Query(default=0, ge=0),
