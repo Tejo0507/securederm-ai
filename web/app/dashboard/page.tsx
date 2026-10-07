@@ -571,11 +571,21 @@ function TrainingTab() {
   const [error, setError] = useState("");
   const logsContainerRef = useRef<HTMLDivElement>(null);
 
+  const router = useRouter();
+
   const poll = useCallback(() => {
+    // No point polling (or waking the server every 1.5 s) for a hidden tab.
+    if (document.hidden) return;
     apiFetch<TrainingStatus>("/api/training/status")
       .then(setStatus)
-      .catch(() => {});
-  }, []);
+      .catch((err: unknown) => {
+        // An expired session would otherwise be retried forever, silently.
+        if (err instanceof ApiError && err.status === 401) {
+          localStorage.removeItem("hospital");
+          router.push("/login");
+        }
+      });
+  }, [router]);
 
   useEffect(() => {
     poll();

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
+import { apiFetch, ApiError } from "@/lib/api";
 
 export default function Navbar() {
   const [scrolled, setScrolled] = useState(false);
@@ -18,8 +19,30 @@ export default function Navbar() {
     // non-sensitive display cache the dashboard writes after a
     // successful login/signup/me check; good enough for a nav link
     // (worst case it's stale and /dashboard's own auth guard redirects).
-    setLoggedIn(!!localStorage.getItem("hospital"));
-    return () => window.removeEventListener("scroll", onScroll);
+    let cancelled = false;
+    try {
+      setLoggedIn(!!localStorage.getItem("hospital"));
+    } catch {
+      // storage blocked — rely on the session check below
+    }
+    // The cache can be stale (expired or revoked session); ask the backend.
+    // Only a definitive 401 flips it to logged-out, so a network blip
+    // doesn't make a signed-in user look signed out.
+    apiFetch("/api/auth/me")
+      .then(() => !cancelled && setLoggedIn(true))
+      .catch((err: unknown) => {
+        if (cancelled || !(err instanceof ApiError) || err.status !== 401) return;
+        setLoggedIn(false);
+        try {
+          localStorage.removeItem("hospital");
+        } catch {
+          // ignore
+        }
+      });
+    return () => {
+      cancelled = true;
+      window.removeEventListener("scroll", onScroll);
+    };
   }, []);
 
   return (
