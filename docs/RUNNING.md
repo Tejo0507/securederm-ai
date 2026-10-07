@@ -157,6 +157,9 @@ Notes:
   model without a node token. Leave it unset to disable admin access.
 - The global model is saved to `checkpoints/global_model.pt` after every
   round and restored on startup (disable with `AGGREGATOR_PERSIST=false`).
+- Set `AGGREGATOR_REGISTRATION_KEY` on the aggregator, and the same variable
+  on each node, so only hospitals you've given the key can enrol (new nodes
+  without it get 403). `AGGREGATOR_MAX_NODES` (default 1000) caps enrolment.
 - Each node keeps a privacy ledger in `logs/privacy_ledger_<node>.json` and
   stops (exit code 2) once `DP_TOTAL_EPSILON_BUDGET` (default 100, 0 = off) is
   spent across rounds.

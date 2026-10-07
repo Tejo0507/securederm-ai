@@ -191,6 +191,70 @@ class TestMetricsAndAdminAccess:
         assert client.get("/round/metrics", headers={"X-Node-Token": ""}).status_code == 403
 
 
+class TestRegistrationControls:
+    def test_registration_key_required_when_configured(self, client, monkeypatch):
+        import aggregator.server as server_module
+
+        monkeypatch.setattr(server_module, "AGGREGATOR_REGISTRATION_KEY", "join-secret")
+        body = {"hospital_id": "keyed_node", "dataset_size": 5}
+        assert client.post("/node/register", json=body).status_code == 403
+        assert client.post(
+            "/node/register", json=body, headers={"X-Registration-Key": "wrong"}
+        ).status_code == 403
+        ok = client.post(
+            "/node/register", json=body, headers={"X-Registration-Key": "join-secret"}
+        )
+        assert ok.status_code == 200
+
+        # Re-registration is authenticated by the node's own token, not the key.
+        again = client.post(
+            "/node/register", json=body,
+            headers={"X-Node-Token": ok.json()["node_token"]},
+        )
+        assert again.status_code == 200
+
+    def test_node_cap(self, client, monkeypatch):
+        import aggregator.server as server_module
+
+        monkeypatch.setattr(server_module, "AGGREGATOR_MAX_NODES", 0)
+        resp = client.post("/node/register", json={"hospital_id": "overflow", "dataset_size": 1})
+        assert resp.status_code == 503
+
+
+class TestConcurrentAggregation:
+    def test_concurrent_uploads_aggregate_exactly_once(self, client):
+        import threading
+
+        import aggregator.server as server_module
+
+        tokens = {}
+        for name in ("conc_a", "conc_b"):
+            tokens[name] = client.post(
+                "/node/register", json={"hospital_id": name, "dataset_size": 5}
+            ).json()["node_token"]
+
+        server_module.pending_updates.clear()
+        version_before = server_module.model_version
+        payload = server_module._serialize_weights(server_module.global_weights)
+        results = {}
+
+        def upload(name):
+            results[name] = client.post("/training/update", json={
+                "hospital_id": name, "model_weights_b64": payload,
+                "num_samples": 5, "training_loss": 0.5,
+            }, headers={"X-Node-Token": tokens[name]}).json()
+
+        threads = [threading.Thread(target=upload, args=(n,)) for n in tokens]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert sum(1 for r in results.values() if r["aggregated"]) == 1
+        assert server_module.model_version == version_before + 1
+        assert server_module.pending_updates == []
+
+
 class TestHospitalIdValidation:
     @pytest.mark.parametrize("bad", ["", "  ", "a\nb", "has space", "x" * 65, "../etc"])
     def test_register_rejects_unsafe_ids(self, client, bad):
