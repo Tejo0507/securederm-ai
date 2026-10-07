@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, FormEvent } from "react";
+import { useEffect, useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { motion } from "framer-motion";
@@ -15,6 +15,17 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [needsVerification, setNeedsVerification] = useState(false);
   const [resendState, setResendState] = useState<"idle" | "sending" | "sent">("idle");
+
+  // Someone who already has a valid session shouldn't be asked to sign in again.
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch("/api/auth/me")
+      .then(() => !cancelled && router.replace("/dashboard"))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
