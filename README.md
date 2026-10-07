@@ -81,7 +81,7 @@ No hospital ever sees another hospital's data. Only gradients cross the wire, an
 | **Modern web console** | Next.js dashboard for live training rounds, model marketplace, and hospital directory |
 | **Verified email accounts** | Signup requires proving control of the email address before login works |
 | **Live wound prediction** | Upload a photo, get a classification with an honest confidence score |
-| **Real test coverage** | 54 automated tests across the model, aggregator, and web backend |
+| **Real test coverage** | 147 automated tests across the model, aggregator, and web backend |
 
 <br/>
 
