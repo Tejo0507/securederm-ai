@@ -40,6 +40,7 @@ logger = logging.getLogger("hospital_node")
 # Read from the environment rather than a CLI flag so the token doesn't
 # end up in shell history or the process list.
 NODE_TOKEN = os.getenv("NODE_TOKEN", "")
+REGISTRATION_KEY = os.getenv("AGGREGATOR_REGISTRATION_KEY", "")
 MAX_ROUND_ATTEMPTS = 3
 RETRY_DELAY_SECONDS = 5
 
@@ -80,6 +81,8 @@ class HospitalClient:
         # A restarted node can't re-register an id the aggregator already
         # knows without presenting that id's current token (anti-hijack).
         headers = {"X-Node-Token": NODE_TOKEN} if NODE_TOKEN else {}
+        if REGISTRATION_KEY:
+            headers["X-Registration-Key"] = REGISTRATION_KEY
 
         try:
             resp = requests.post(url, json=payload, headers=headers, timeout=30)
