@@ -265,6 +265,20 @@ class TestLoginAndAuth:
         resp = client.post("/api/auth/logout")  # no X-CSRF-Token header
         assert resp.status_code == 403
 
+    def test_logout_clears_cookies_even_when_session_is_invalid(self, client):
+        # An expired/revoked session used to get a 401 here, so the stale
+        # cookies could never be cleared from the browser.
+        client.cookies.set(auth_module.SESSION_COOKIE_NAME, "expired.or.garbage")
+        client.cookies.set(auth_module.CSRF_COOKIE_NAME, "csrf-value")
+        resp = client.post(
+            "/api/auth/logout", headers={auth_module.CSRF_HEADER_NAME: "csrf-value"}
+        )
+        assert resp.status_code == 200
+        assert client.get("/api/auth/me").status_code == 401
+
+    def test_logout_without_any_session_is_a_harmless_noop(self, client):
+        assert client.post("/api/auth/logout").status_code == 200
+
 
 class TestLoginRateLimit:
     def test_login_rate_limited_after_repeated_failures(self, client):
