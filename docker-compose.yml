@@ -13,6 +13,7 @@ services:
       - AGGREGATOR_HOST=0.0.0.0
       - AGGREGATOR_PORT=8000
       - AGGREGATOR_ADMIN_TOKEN=${AGGREGATOR_ADMIN_TOKEN:-}
+      - AGGREGATOR_REGISTRATION_KEY=${AGGREGATOR_REGISTRATION_KEY:-}
     volumes:
       # Persisted global model; the web backend's predictor reads it too.
       - ./checkpoints:/app/checkpoints
@@ -29,6 +30,7 @@ services:
       - AGGREGATOR_HOST=aggregator
       - AGGREGATOR_PORT=8000
       - NODE_TOKEN=${HOSPITAL_A_TOKEN:-}
+      - AGGREGATOR_REGISTRATION_KEY=${AGGREGATOR_REGISTRATION_KEY:-}
     volumes:
       - ./datasets/hospital_A:/app/datasets/hospital_A:ro
       - ./logs/hospital_A:/app/logs
@@ -45,6 +47,7 @@ services:
       - AGGREGATOR_HOST=aggregator
       - AGGREGATOR_PORT=8000
       - NODE_TOKEN=${HOSPITAL_B_TOKEN:-}
+      - AGGREGATOR_REGISTRATION_KEY=${AGGREGATOR_REGISTRATION_KEY:-}
     volumes:
       - ./datasets/hospital_B:/app/datasets/hospital_B:ro
       - ./logs/hospital_B:/app/logs
