@@ -32,8 +32,12 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, field_validator
 
 from aggregator.fedavg import federated_average
+from aggregator.robust import clip_update, file_sha256, sha256_hex
 from config.settings import (
     AGGREGATOR_ADMIN_TOKEN,
+    AGGREGATOR_MAX_UPDATE_NORM,
+    CLASS_LABELS,
+    NUM_CLASSES,
     AGGREGATOR_HOST,
     AGGREGATOR_MAX_NODES,
     AGGREGATOR_PERSIST,
@@ -150,6 +154,11 @@ class TrainingUpdate(BaseModel):
     model_weights_b64: str   # base64-encoded state_dict
     num_samples: int
     training_loss: float
+    # Version of the global model this update was trained from; an update
+    # built on an older model is stale and would drag the new one backwards.
+    base_version: int | None = None
+    # SHA-256 of the raw serialized weights, to catch corruption in transit.
+    weights_sha256: str | None = None
 
     @field_validator("hospital_id")
     @classmethod
@@ -260,15 +269,18 @@ def _load_persisted_state(build) -> tuple[OrderedDict, int] | None:
     if not AGGREGATOR_PERSIST or not _CHECKPOINT_PATH.exists():
         return None
     try:
+        meta = json.loads(_META_PATH.read_text()) if _META_PATH.exists() else {}
+        expected_digest = meta.get("sha256")
+        if expected_digest and file_sha256(_CHECKPOINT_PATH) != expected_digest:
+            # Truncated write, disk corruption or tampering: don't serve it.
+            logger.error("Saved global model fails its integrity check; ignoring it.")
+            return None
         weights = torch.load(_CHECKPOINT_PATH, map_location="cpu", weights_only=True)
         problem = _check_weights_compatible(weights, build(pretrained=False))
         if problem:
             logger.warning("Ignoring saved global model: %s", problem)
             return None
-        version = 1
-        if _META_PATH.exists():
-            version = int(json.loads(_META_PATH.read_text()).get("model_version", 1))
-        return weights, max(version, 1)
+        return weights, max(int(meta.get("model_version", 1)), 1)
     except Exception:
         logger.exception("Could not restore saved global model; starting fresh.")
         return None
@@ -284,9 +296,19 @@ def _persist_state() -> None:
         CHECKPOINTS_DIR.mkdir(parents=True, exist_ok=True)
         tmp = _CHECKPOINT_PATH.with_suffix(".pt.tmp")
         torch.save(global_weights, tmp)
+        digest = file_sha256(tmp)
         os.replace(tmp, _CHECKPOINT_PATH)
         meta_tmp = _META_PATH.with_suffix(".json.tmp")
-        meta_tmp.write_text(json.dumps({"model_version": model_version}))
+        # The meta file doubles as a small model card.
+        meta_tmp.write_text(json.dumps({
+            "model_version": model_version,
+            "sha256": digest,
+            "num_classes": NUM_CLASSES,
+            "class_labels": {str(k): v for k, v in CLASS_LABELS.items()},
+            "differential_privacy": USE_DIFFERENTIAL_PRIVACY,
+            "rounds_completed": len(round_metrics),
+            "saved_at": datetime.now(timezone.utc).isoformat(),
+        }))
         os.replace(meta_tmp, _META_PATH)
     except Exception:
         logger.exception("Could not persist global model checkpoint.")
@@ -401,6 +423,18 @@ async def submit_update(
     if not _validate_token(payload.hospital_id, x_node_token):
         raise HTTPException(status_code=403, detail="Invalid node token.")
 
+    if payload.weights_sha256 is not None:
+        try:
+            actual = await run_in_threadpool(
+                lambda: sha256_hex(base64.b64decode(payload.model_weights_b64))
+            )
+        except Exception:
+            raise HTTPException(status_code=400, detail="model_weights_b64 is not valid base64.")
+        if not secrets.compare_digest(actual, payload.weights_sha256.lower()):
+            raise HTTPException(
+                status_code=400, detail="Weights failed their integrity check (corrupt upload)."
+            )
+
     # Deserialize and store the update
     # Decoding ~45 MB and scanning every tensor is seconds of CPU; do it in a
     # worker thread so status checks and other nodes' requests keep flowing.
@@ -429,6 +463,36 @@ async def submit_update(
     # concurrent uploads could both see "enough updates" and aggregate the
     # same batch twice (or append into a list that is being cleared).
     async with _aggregation_lock:
+        if payload.base_version is not None and payload.base_version != model_version:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Stale update: trained from model v{payload.base_version}, "
+                    f"current is v{model_version}. Download the latest model and retrain."
+                ),
+            )
+
+        if AGGREGATOR_MAX_UPDATE_NORM > 0:
+            weights, norm, was_clipped = await run_in_threadpool(
+                clip_update, weights, global_weights, AGGREGATOR_MAX_UPDATE_NORM
+            )
+            if was_clipped:
+                logger.warning(
+                    "Update from %s clipped (distance %.2f > limit %.2f)",
+                    payload.hospital_id, norm, AGGREGATOR_MAX_UPDATE_NORM,
+                )
+
+        # A node may not claim more samples than it declared at registration:
+        # num_samples is its FedAvg weight, so an inflated value would let it
+        # dominate the average.
+        declared = registered_nodes[payload.hospital_id]["dataset_size"]
+        effective_samples = min(payload.num_samples, declared)
+        if effective_samples != payload.num_samples:
+            logger.warning(
+                "%s claimed %d samples but registered %d; using %d",
+                payload.hospital_id, payload.num_samples, declared, effective_samples,
+            )
+
         # One pending update per node: a node resubmitting before the round
         # closes replaces its earlier update instead of counting twice (which
         # would let a single node satisfy MIN_NODES_FOR_AGGREGATION alone).
@@ -438,7 +502,7 @@ async def submit_update(
         pending_updates.append({
             "hospital_id": payload.hospital_id,
             "weights": weights,
-            "num_samples": payload.num_samples,
+            "num_samples": effective_samples,
             "loss": payload.training_loss,
         })
 
@@ -507,6 +571,22 @@ async def get_latest_model(x_node_token: str | None = Header(None, alias="X-Node
         model_version=model_version,
         weights_b64=_serialized_cache[1],
     )
+
+
+@app.get("/model/info")
+async def get_model_info(x_node_token: str | None = Header(None, alias="X-Node-Token")):
+    """Describe the global model (version, classes, privacy mode) without its weights."""
+    if not _is_authorized(x_node_token):
+        raise HTTPException(status_code=403, detail="Invalid node token.")
+    return {
+        "model_version": model_version,
+        "num_classes": NUM_CLASSES,
+        "class_labels": {str(k): v for k, v in CLASS_LABELS.items()},
+        "differential_privacy": USE_DIFFERENTIAL_PRIVACY,
+        "rounds_completed": len(round_metrics),
+        "min_nodes_for_aggregation": MIN_NODES_FOR_AGGREGATION,
+        "max_update_norm": AGGREGATOR_MAX_UPDATE_NORM or None,
+    }
 
 
 @app.get("/status")
