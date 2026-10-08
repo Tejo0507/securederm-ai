@@ -17,6 +17,7 @@ from torch.utils.data import DataLoader, Dataset
 from config.settings import (
     BATCH_SIZE,
     DP_EPSILON,
+    DP_MIN_TRAIN_SAMPLES,
     LEARNING_RATE,
     LOCAL_EPOCHS,
     USE_DIFFERENTIAL_PRIVACY,
@@ -63,6 +64,16 @@ def train_local(
 
     if len(dataset) == 0:
         raise ValueError("Cannot train on an empty dataset.")
+
+    # With only a handful of records, per-example clipping + noise protects
+    # almost nothing (and the noise swamps the signal): each patient is a
+    # large fraction of every batch. Refuse rather than ship a model that
+    # claims DP but leaks individual cases.
+    if USE_DIFFERENTIAL_PRIVACY and len(dataset) < DP_MIN_TRAIN_SAMPLES:
+        raise ValueError(
+            f"Dataset has {len(dataset)} samples; differential privacy needs at "
+            f"least {DP_MIN_TRAIN_SAMPLES} (DP_MIN_TRAIN_SAMPLES) to be meaningful."
+        )
 
     # BatchNorm (non-DP path) raises on a training batch of exactly one
     # sample, so drop a trailing singleton batch. The DP path samples its

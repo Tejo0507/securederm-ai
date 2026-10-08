@@ -13,6 +13,7 @@ Usage:
 
 import argparse
 import base64
+import hashlib
 import io
 import os
 import sys
@@ -54,6 +55,7 @@ class HospitalClient:
         self.dataset = dataset  # pre-built Dataset/Subset (Kaggle partitions)
         self.token: str | None = None
         self.budget_exhausted = False
+        self.model_version: int | None = None   # version of the model last downloaded
         self.log = logging.getLogger(f"node.{hospital_id}")
         self.tag = f"[{hospital_id}]"
 
@@ -127,7 +129,8 @@ class HospitalClient:
         except Exception as exc:
             self.log.error("%s Received an unreadable model: %s", self.tag, exc)
             return None
-        self.log.info("%s Downloading model v%d", self.tag, data["model_version"])
+        self.model_version = data["model_version"]
+        self.log.info("%s Downloading model v%d", self.tag, self.model_version)
         return weights
 
     # ── Upload update ────────────────────────────────────────────────
@@ -135,7 +138,8 @@ class HospitalClient:
         """Send locally-trained weights to the aggregator."""
         buffer = io.BytesIO()
         torch.save(weights, buffer)
-        weights_b64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
+        raw = buffer.getvalue()
+        weights_b64 = base64.b64encode(raw).decode("utf-8")
 
         url = f"{AGGREGATOR_URL}/training/update"
         headers = {"X-Node-Token": self.token or ""}
@@ -144,6 +148,8 @@ class HospitalClient:
             "model_weights_b64": weights_b64,
             "num_samples": num_samples,
             "training_loss": loss,
+            "base_version": self.model_version,
+            "weights_sha256": hashlib.sha256(raw).hexdigest(),
         }
 
         try:
