@@ -441,7 +441,9 @@ class TestUploadFilenameEdgeCases:
             files={"files": (name, self._png(), "image/png")},
         )
         assert resp.status_code == 200
-        assert resp.json()["uploaded"] == (1 if name.endswith("evil.png") else 0)
+        # The client's filename is never used for storage, so odd names are
+        # harmless: the image is accepted and saved under a hash-derived name.
+        assert resp.json()["uploaded"] == 1
 
 
 class TestNetworkListingsRequireAuth:
@@ -463,21 +465,91 @@ class TestUploadQuota:
 
         monkeypatch.setattr(hospital_router, "MAX_IMAGES_PER_HOSPITAL", 1)
         _signup_and_verify(client, email="quota@example.com", password="correcthorse1")
-        buf = io.BytesIO()
-        Image.new("RGB", (8, 8)).save(buf, format="PNG")
-        png = buf.getvalue()
+        def png(color):
+            buf = io.BytesIO()
+            Image.new("RGB", (8, 8), color=color).save(buf, format="PNG")
+            return buf.getvalue()
+
         headers = _csrf_headers(client)
 
         first = client.post("/api/datasets/upload", headers=headers,
-                            files={"files": ("one.png", png, "image/png")})
+                            files={"files": ("one.png", png((1, 2, 3)), "image/png")})
         assert first.status_code == 200
         second = client.post("/api/datasets/upload", headers=headers,
-                             files={"files": ("two.png", png, "image/png")})
+                             files={"files": ("two.png", png((9, 9, 9)), "image/png")})
         assert second.status_code == 413
-        # Overwriting an existing file doesn't add to the count.
+        # Re-sending an image already stored doesn't add to the count.
         again = client.post("/api/datasets/upload", headers=headers,
-                            files={"files": ("one.png", png, "image/png")})
-        assert again.status_code == 200
+                            files={"files": ("one.png", png((1, 2, 3)), "image/png")})
+        assert again.status_code == 200 and again.json()["total_images"] == 1
+
+    def test_partial_batch_is_saved_and_count_stays_accurate(self, client, monkeypatch):
+        from web_backend.routers import hospital_router
+
+        monkeypatch.setattr(hospital_router, "MAX_IMAGES_PER_HOSPITAL", 2)
+        _signup_and_verify(client, email="quota2@example.com", password="correcthorse1")
+        files = []
+        for i in range(4):
+            buf = io.BytesIO()
+            Image.new("RGB", (8, 8), color=(i * 40, 0, 0)).save(buf, format="PNG")
+            files.append(("files", (f"{i}.png", buf.getvalue(), "image/png")))
+        resp = client.post("/api/datasets/upload", headers=_csrf_headers(client), files=files)
+        assert resp.status_code == 200
+        assert resp.json()["uploaded"] == 2
+        assert resp.json()["total_images"] == 2
+        assert resp.json()["quota_reached"] is True
+
+
+class TestUploadPrivacy:
+    def _jpeg_with_exif(self) -> bytes:
+        exif = Image.Exif()
+        exif[0x010F] = "SecretCameraMaker"      # Make
+        exif[0x013B] = "Dr. Patient Name"       # Artist
+        buf = io.BytesIO()
+        Image.new("RGB", (16, 16), color=(200, 100, 90)).save(buf, format="JPEG", exif=exif)
+        return buf.getvalue()
+
+    def test_sanitize_removes_exif_and_keeps_pixels(self):
+        from web_backend.image_validation import sanitize_image
+
+        original = self._jpeg_with_exif()
+        assert b"SecretCameraMaker" in original
+        clean, ext = sanitize_image(original)
+        assert ext == ".jpg"
+        assert b"SecretCameraMaker" not in clean and b"Dr. Patient Name" not in clean
+        with Image.open(io.BytesIO(clean)) as img:
+            assert img.size == (16, 16)
+            assert len(img.getexif()) == 0
+
+    def test_png_text_chunks_are_removed(self):
+        from PIL.PngImagePlugin import PngInfo
+        from web_backend.image_validation import sanitize_image
+
+        info = PngInfo()
+        info.add_text("PatientName", "Jane Doe")
+        buf = io.BytesIO()
+        Image.new("RGB", (8, 8)).save(buf, format="PNG", pnginfo=info)
+        assert b"Jane Doe" in buf.getvalue()
+        clean, _ = sanitize_image(buf.getvalue())
+        assert b"Jane Doe" not in clean
+
+    def test_uploaded_file_is_stored_clean_and_without_the_client_filename(self, client):
+        from web_backend.routers import hospital_router
+
+        _signup_and_verify(client, email="privacyup@example.com", password="correcthorse1")
+        resp = client.post(
+            "/api/datasets/upload",
+            headers=_csrf_headers(client),
+            files={"files": ("JANE_DOE_MRN12345.jpg", self._jpeg_with_exif(), "image/jpeg")},
+        )
+        assert resp.json()["uploaded"] == 1
+
+        stored = [
+            p for d in hospital_router.UPLOAD_DIR.iterdir() if d.is_dir()
+            for p in d.iterdir()
+            if b"SecretCameraMaker" in p.read_bytes() or "JANE" in p.name
+        ]
+        assert stored == []
 
 
 class TestUploadedImageLimits:
