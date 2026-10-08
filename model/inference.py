@@ -137,11 +137,28 @@ class WoundPredictor:
 
 
 _predictor: WoundPredictor | None = None
+_predictor_stamp: tuple[int, int] | None = None   # (mtime_ns, size) of the loaded file
+
+
+def _file_stamp(path) -> tuple[int, int] | None:
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    return st.st_mtime_ns, st.st_size
 
 
 def get_predictor() -> WoundPredictor:
-    """Lazily-initialized process-wide singleton — avoids reloading the model per request."""
-    global _predictor
-    if _predictor is None:
+    """Process-wide predictor, reloaded when the checkpoint file changes.
+
+    Loading once and never again meant the web app kept serving the model
+    from its first request even after the aggregator wrote a better one
+    (until the whole process was restarted).
+    """
+    global _predictor, _predictor_stamp
+    path = CHECKPOINTS_DIR / "global_model.pt"
+    stamp = _file_stamp(path)
+    if _predictor is None or stamp != _predictor_stamp:
         _predictor = WoundPredictor()
+        _predictor_stamp = stamp
     return _predictor
