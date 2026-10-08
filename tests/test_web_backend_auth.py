@@ -59,6 +59,9 @@ def _csrf_headers(client) -> dict:
     return {auth_module.CSRF_HEADER_NAME: token} if token else {}
 
 
+pytestmark = pytest.mark.security
+
+
 class TestPasswordHashing:
     """Unit tests for the hashing scheme itself, independent of the API."""
 
@@ -465,6 +468,7 @@ class TestUploadQuota:
 
         monkeypatch.setattr(hospital_router, "MAX_IMAGES_PER_HOSPITAL", 1)
         _signup_and_verify(client, email="quota@example.com", password="correcthorse1")
+
         def png(color):
             buf = io.BytesIO()
             Image.new("RGB", (8, 8), color=color).save(buf, format="PNG")
