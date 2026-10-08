@@ -6,6 +6,9 @@ from fastapi.testclient import TestClient
 from aggregator.server import app
 
 
+pytestmark = pytest.mark.federated
+
+
 @pytest.fixture
 def client():
     with TestClient(app) as c:

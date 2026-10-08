@@ -9,6 +9,9 @@ from hospital_node import train as train_module
 from hospital_node.dataset_loader import partition_for_hospitals
 
 
+pytestmark = pytest.mark.federated
+
+
 class _TinyDataset(Dataset):
     def __init__(self, n):
         self.n = n
