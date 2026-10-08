@@ -12,6 +12,9 @@ from aggregator.robust import clip_update, update_norm
 from aggregator.server import app
 
 
+pytestmark = [pytest.mark.security, pytest.mark.federated]
+
+
 @pytest.fixture
 def client():
     with TestClient(app) as c:

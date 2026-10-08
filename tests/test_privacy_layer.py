@@ -14,6 +14,9 @@ from hospital_node.privacy_layer import (
 from model.architecture import build_model
 
 
+pytestmark = pytest.mark.privacy
+
+
 class _Tiny(Dataset):
     def __len__(self):
         return 8
