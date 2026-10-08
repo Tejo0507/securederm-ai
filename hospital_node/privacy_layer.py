@@ -268,8 +268,9 @@ def train_with_privacy(
             loss.backward()
             optimizer.step()
 
-            epoch_loss += loss.item()
-            batches += 1
+            if labels.numel():  # Poisson sampling can yield an empty batch (NaN loss)
+                epoch_loss += loss.item()
+                batches += 1
 
         avg_loss = epoch_loss / max(batches, 1)
         final_loss = avg_loss
