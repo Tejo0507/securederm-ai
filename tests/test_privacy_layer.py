@@ -74,6 +74,18 @@ class TestPrivacyBudget:
             PrivacyBudget("node_a", total_budget=5, directory=tmp_path)
 
 
+class TestMinimumDatasetSize:
+    def test_dp_refuses_tiny_datasets(self, monkeypatch):
+        monkeypatch.setattr(train_module, "USE_DIFFERENTIAL_PRIVACY", True)
+
+        class Three(_Tiny):
+            def __len__(self):
+                return 3
+
+        with pytest.raises(ValueError, match="DP_MIN_TRAIN_SAMPLES"):
+            train_module.train_local(dataset=Three(), batch_size=2, epochs=1)
+
+
 class TestTrainLocalBudget:
     def test_round_is_charged_and_exhaustion_blocks_training(self, tmp_path, monkeypatch):
         monkeypatch.setattr(privacy_layer, "LOGS_DIR", tmp_path)
