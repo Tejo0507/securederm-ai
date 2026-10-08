@@ -57,6 +57,10 @@ AGGREGATOR_ADMIN_TOKEN = os.getenv("AGGREGATOR_ADMIN_TOKEN", "")
 AGGREGATOR_REGISTRATION_KEY = os.getenv("AGGREGATOR_REGISTRATION_KEY", "")
 # Upper bound on enrolled nodes, so open registration can't grow memory forever.
 AGGREGATOR_MAX_NODES = int(os.getenv("AGGREGATOR_MAX_NODES", "1000"))
+# Maximum L2 distance an uploaded model may sit from the current global model;
+# farther updates are scaled back to this radius (limits any one node's
+# influence, incl. poisoning). 0 disables clipping.
+AGGREGATOR_MAX_UPDATE_NORM = float(os.getenv("AGGREGATOR_MAX_UPDATE_NORM", "0"))
 # Persist the global model across aggregator restarts (see aggregator.server).
 AGGREGATOR_PERSIST = os.getenv("AGGREGATOR_PERSIST", "true").lower() != "false"
 
@@ -92,6 +96,8 @@ USE_DIFFERENTIAL_PRIVACY = True
 DP_EPSILON = 3.0
 DP_DELTA = 1e-5
 DP_MAX_GRAD_NORM = 1.0
+# Smallest local dataset a node may train on with DP enabled.
+DP_MIN_TRAIN_SAMPLES = int(os.getenv("DP_MIN_TRAIN_SAMPLES", "8"))
 # Lifetime epsilon a node may spend across all federated rounds (each round
 # costs up to DP_EPSILON). 0 disables enforcement. See PrivacyBudget.
 DP_TOTAL_EPSILON_BUDGET = float(os.getenv("DP_TOTAL_EPSILON_BUDGET", "100"))
