@@ -4,6 +4,13 @@ python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
 addopts = "-v --tb=short"
+# Groups visible/filterable in the VS Code Testing panel and via `pytest -m`.
+markers = [
+    "privacy: differential privacy, privacy budget and upload anonymisation",
+    "security: authentication, integrity and abuse-resistance checks",
+    "federated: aggregator, hospital node and end-to-end federated rounds",
+    "slow: trains a real model (seconds, not milliseconds)",
+]
 
 [tool.black]
 line-length = 88
