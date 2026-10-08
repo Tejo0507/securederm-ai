@@ -52,6 +52,26 @@ class TestTrainLocal:
         )
 
 
+class TestTrainStep:
+    def _parts(self):
+        model = torch.nn.Linear(4, 2)
+        return model, torch.optim.SGD(model.parameters(), lr=0.1), torch.nn.CrossEntropyLoss()
+
+    def test_empty_batch_does_not_report_a_nan_loss(self):
+        model, opt, crit = self._parts()
+        loss = train_module.train_step(
+            model, opt, crit, torch.zeros(0, 4), torch.zeros(0, dtype=torch.long)
+        )
+        assert loss is None  # CrossEntropyLoss of an empty batch is NaN
+
+    def test_normal_batch_returns_a_finite_loss(self):
+        model, opt, crit = self._parts()
+        loss = train_module.train_step(
+            model, opt, crit, torch.randn(3, 4), torch.tensor([0, 1, 0])
+        )
+        assert loss is not None and loss == loss and loss > 0
+
+
 class TestClientRounds:
     def _client(self):
         c = client_module.HospitalClient("node_x", dataset=_TinyDataset(4))
