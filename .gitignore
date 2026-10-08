@@ -13,7 +13,11 @@ venv/
 env/
 
 # IDE
-.vscode/
+.vscode/*
+# Shared editor config: test discovery, interpreter, recommended extensions.
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
 .idea/
 *.swp
 *.swo

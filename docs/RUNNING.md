@@ -113,6 +113,23 @@ python -m pytest tests/ -v
 
 ---
 
+## Running tests in VS Code
+
+The repo ships `.vscode/settings.json`, so after opening the folder and
+selecting the `venv` interpreter, every test appears in the **Testing** panel
+(beaker icon). Run or debug any test, class or file from there. Tests are
+tagged so you can run just one area from a terminal or filter in the panel:
+
+```powershell
+pytest -m privacy      # DP, privacy budget, upload anonymisation
+pytest -m security     # auth, integrity, abuse resistance
+pytest -m federated    # aggregator, nodes, end-to-end round
+pytest -m "not slow"   # skip the tests that train a real model
+```
+
+`tests/test_federated_e2e.py` runs a full two-hospital private round
+(local DP training → upload → aggregation → load the new model).
+
 ## Docker Alternative
 
 If you prefer Docker Compose:
