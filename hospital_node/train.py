@@ -28,6 +28,25 @@ from model.architecture import WoundClassifier, build_model, get_device
 logger = logging.getLogger("hospital_node")
 
 
+def train_step(model, optimizer, criterion, images, labels) -> Optional[float]:
+    """One optimisation step; returns the batch loss, or None for an empty batch.
+
+    Opacus draws each batch by Poisson sampling, so a batch can legitimately
+    come back with zero examples. The mean loss of an empty batch is NaN,
+    which used to poison the epoch's average (and fail the whole round as
+    "diverged"). The step is still taken so the DP optimizer's accounting of
+    noise per step stays correct, but the NaN is not counted.
+    """
+    optimizer.zero_grad()
+    outputs = model(images)
+    loss = criterion(outputs, labels)
+    loss.backward()
+    optimizer.step()
+    if labels.numel() == 0:
+        return None
+    return loss.item()
+
+
 def train_local(
     dataset_path: Optional[str] = None,
     dataset: Optional[Dataset] = None,
@@ -143,14 +162,10 @@ def train_local(
             images = images.to(device)
             labels = labels.to(device)
 
-            optimizer.zero_grad()
-            outputs = model(images)
-            loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
-
-            epoch_loss += loss.item()
-            batches += 1
+            batch_loss = train_step(model, optimizer, criterion, images, labels)
+            if batch_loss is not None:
+                epoch_loss += batch_loss
+                batches += 1
 
         avg_loss = epoch_loss / max(batches, 1)
         running_loss = avg_loss
