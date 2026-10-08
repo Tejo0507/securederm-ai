@@ -17,6 +17,32 @@ MAX_IMAGE_PIXELS = 40_000_000
 Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
 
 
+_EXTENSIONS = {"JPEG": ".jpg", "PNG": ".png", "BMP": ".bmp", "TIFF": ".tif", "WEBP": ".webp"}
+
+
+def sanitize_image(content: bytes) -> tuple[bytes, str]:
+    """Re-encode a validated image from raw pixels only; return (bytes, extension).
+
+    Clinical photos routinely carry EXIF (GPS position, device and owner
+    names, timestamps), PNG text chunks and TIFF tags — identifying data
+    that must never reach disk or a training set. Rebuilding the image from
+    its pixel buffer drops every metadata block, ICC profile and thumbnail.
+    Call only on content already accepted by is_genuine_image().
+    """
+    with Image.open(io.BytesIO(content)) as img:
+        fmt = img.format
+        mode = img.mode if img.mode in ("L", "RGB") else "RGB"
+        pixels = img.convert(mode)
+        clean = Image.frombytes(mode, pixels.size, pixels.tobytes())
+
+    out = io.BytesIO()
+    if fmt == "JPEG":
+        clean.save(out, format="JPEG", quality=95)
+    else:
+        clean.save(out, format=fmt)
+    return out.getvalue(), _EXTENSIONS[fmt]
+
+
 def is_genuine_image(content: bytes) -> bool:
     """Verify file content is really a decodable image, not just a spoofed
     Content-Type header on arbitrary bytes — and not an oversized one."""
