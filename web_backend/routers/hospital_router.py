@@ -1,5 +1,6 @@
+import hashlib
 import os
-from pathlib import Path, PureWindowsPath
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
 from sqlalchemy.orm import Session
@@ -7,7 +8,7 @@ from sqlalchemy.orm import Session
 from web_backend.database import get_db
 from web_backend.db_models import Hospital, Dataset, MLModel
 from web_backend.auth import get_current_hospital, verify_csrf
-from web_backend.image_validation import MAX_FILE_SIZE_BYTES, is_genuine_image
+from web_backend.image_validation import MAX_FILE_SIZE_BYTES, is_genuine_image, sanitize_image
 
 # Overridable so tests can point uploads at a throwaway directory instead
 # of writing real files into the project's own datasets/uploads/ on every
@@ -44,6 +45,7 @@ async def upload_dataset(
     existing_count = sum(1 for p in hospital_dir.iterdir() if p.is_file())
 
     saved = 0
+    quota_hit = False
     for f in files:
         if not f.filename:
             continue
@@ -54,22 +56,22 @@ async def upload_dataset(
         if not content or not is_genuine_image(content):
             continue  # reject empty / spoofed-content-type / non-image files
 
-        # PureWindowsPath splits on both "/" and "\", so a client-supplied
-        # "..\\..\\x.png" is reduced to its basename on any host OS.
-        safe_name = PureWindowsPath(f.filename).name
-        if not safe_name or safe_name in (".", ".."):
+        # Strip EXIF/GPS/etc. and store under a name derived from the pixel
+        # data: the client's filename often contains a patient name or ID and
+        # must not be persisted. Identical images collapse to one file.
+        try:
+            clean, ext = sanitize_image(content)
+        except Exception:
             continue
-        dest = hospital_dir / safe_name
+        dest = hospital_dir / f"{hashlib.sha256(clean).hexdigest()[:32]}{ext}"
         if not dest.exists():
             # Per-hospital cap so one account can't fill the server's disk.
             if existing_count >= MAX_IMAGES_PER_HOSPITAL:
-                raise HTTPException(
-                    status_code=413,
-                    detail=f"Dataset limit reached ({MAX_IMAGES_PER_HOSPITAL} images).",
-                )
+                quota_hit = True
+                break
             existing_count += 1
         with open(dest, "wb") as out:
-            out.write(content)
+            out.write(clean)
         saved += 1
 
     # Recomputed from what's actually on disk rather than incremented by
@@ -94,7 +96,15 @@ async def upload_dataset(
         db.add(ds)
     db.commit()
 
-    return {"uploaded": saved, "total_images": ds.image_count}
+    # Raised only after the commit so the stored count reflects what was
+    # saved before the cap was reached.
+    if quota_hit and saved == 0:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Dataset limit reached ({MAX_IMAGES_PER_HOSPITAL} images).",
+        )
+
+    return {"uploaded": saved, "total_images": ds.image_count, "quota_reached": quota_hit}
 
 
 @router.get("/datasets")
