@@ -51,6 +51,24 @@ class _Predictor(inference.WoundPredictor):
         self.model = build_model(pretrained=False).eval()
 
 
+class TestPredictorReload:
+    def test_checkpoint_change_triggers_reload(self, tmp_path, monkeypatch):
+        import os
+
+        monkeypatch.setattr(inference, "CHECKPOINTS_DIR", tmp_path)
+        monkeypatch.setattr(inference, "_predictor", None)
+        monkeypatch.setattr(inference, "_predictor_stamp", None)
+        path = tmp_path / "global_model.pt"
+        torch.save(build_model(pretrained=False).state_dict(), path)
+
+        first = inference.get_predictor()
+        assert inference.get_predictor() is first  # unchanged file -> cached
+
+        torch.save(build_model(pretrained=False).state_dict(), path)
+        os.utime(path, ns=(1, 1))  # guarantee a distinct stamp on coarse clocks
+        assert inference.get_predictor() is not first
+
+
 class TestPredictorOutputs:
     def _image(self):
         return Image.new("RGB", (64, 64), color=(150, 80, 70))
