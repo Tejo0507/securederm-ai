@@ -77,6 +77,21 @@ class TestPrivacyBudget:
             PrivacyBudget("node_a", total_budget=5, directory=tmp_path)
 
 
+class TestSecureMode:
+    def test_missing_csprng_gives_a_clear_error(self, monkeypatch):
+        monkeypatch.setattr(privacy_layer, "DP_SECURE_MODE", True)
+        try:
+            import torchcsprng  # noqa: F401
+        except ImportError:
+            model = make_model_private(build_model(pretrained=False))
+            opt = torch.optim.SGD(model.parameters(), lr=0.1)
+            loader = torch.utils.data.DataLoader(_Tiny(), batch_size=4)
+            with pytest.raises(RuntimeError, match="torchcsprng"):
+                privacy_layer.attach_privacy_engine(model, opt, loader)
+        else:
+            pytest.skip("torchcsprng installed")
+
+
 class TestLogHygiene:
     def test_unreadable_image_log_omits_the_filename(self, tmp_path, caplog):
         from PIL import Image

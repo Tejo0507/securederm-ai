@@ -182,6 +182,15 @@ function OverviewTab({ hospital, setTab }: { hospital: HospitalInfo; setTab: (t:
     apiFetch<unknown[]>("/api/hospitals").then(setHospitals).catch(() => {});
   }, []);
 
+  const [activity, setActivity] = useState<
+    { ts: string; action: string; images?: number; ip?: string }[]
+  >([]);
+  useEffect(() => {
+    apiFetch<typeof activity>("/api/auth/activity?limit=8")
+      .then(setActivity)
+      .catch(() => {});
+  }, []);
+
   const totalImages = datasets.reduce(
     (sum, d) => sum + (d.image_count || 0),
     0,
@@ -240,6 +249,29 @@ function OverviewTab({ hospital, setTab }: { hospital: HospitalInfo; setTab: (t:
           </Link>
         </div>
       </div>
+
+      {activity.length > 0 && (
+        <div className="glass rounded-xl p-6">
+          <h3 className="font-semibold mb-1">Recent account activity</h3>
+          <p className="text-xs text-zinc-500 mb-4">
+            Logins, uploads and deletions on your account. If you don&apos;t
+            recognise something, change your password.
+          </p>
+          <ul className="space-y-1.5 text-sm">
+            {activity.map((e, i) => (
+              <li key={`${e.ts}-${i}`} className="flex justify-between text-zinc-300">
+                <span>
+                  {e.action.replace(/_/g, " ")}
+                  {typeof e.images === "number" ? ` (${e.images} images)` : ""}
+                </span>
+                <span className="text-xs text-zinc-600">
+                  {new Date(e.ts).toLocaleString()}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </motion.div>
   );
 }

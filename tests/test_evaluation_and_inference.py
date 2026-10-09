@@ -51,6 +51,22 @@ class _Predictor(inference.WoundPredictor):
         self.model = build_model(pretrained=False).eval()
 
 
+class TestModelTraceability:
+    def test_results_carry_the_checkpoint_fingerprint(self, tmp_path):
+        path = tmp_path / "global_model.pt"
+        torch.save(build_model(pretrained=False).state_dict(), path)
+        predictor = inference.WoundPredictor(model_path=path, device="cpu")
+        result = predictor.predict(Image.new("RGB", (32, 32), color=(120, 60, 50)))
+        assert len(result.model_id) == 12
+        assert result.model_id == inference._checkpoint_id(path)
+
+    def test_fingerprint_changes_when_the_model_changes(self, tmp_path):
+        a, b = tmp_path / "a.pt", tmp_path / "b.pt"
+        torch.save(build_model(pretrained=False).state_dict(), a)
+        torch.save(build_model(pretrained=False).state_dict(), b)
+        assert inference._checkpoint_id(a) != inference._checkpoint_id(b)
+
+
 class TestPredictorReload:
     def test_checkpoint_change_triggers_reload(self, tmp_path, monkeypatch):
         import os
