@@ -126,12 +126,14 @@ export default function SignupPage() {
           )}
 
           <div>
-            <label className="block text-sm text-zinc-400 mb-1.5">
+            <label htmlFor="signup-name" className="block text-sm text-zinc-400 mb-1.5">
               Hospital Name
             </label>
             <input
               type="text"
               required
+              id="signup-name"
+              autoComplete="organization"
               value={form.name}
               maxLength={200}
               onChange={(e) => update("name", e.target.value)}
@@ -141,10 +143,12 @@ export default function SignupPage() {
           </div>
 
           <div>
-            <label className="block text-sm text-zinc-400 mb-1.5">Email</label>
+            <label htmlFor="signup-email" className="block text-sm text-zinc-400 mb-1.5">Email</label>
             <input
               type="email"
               required
+              id="signup-email"
+              autoComplete="email"
               value={form.email}
               onChange={(e) => update("email", e.target.value)}
               className="w-full px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all"
@@ -153,7 +157,7 @@ export default function SignupPage() {
           </div>
 
           <div>
-            <label className="block text-sm text-zinc-400 mb-1.5">
+            <label htmlFor="signup-password" className="block text-sm text-zinc-400 mb-1.5">
               Password
             </label>
             <div className="relative">
@@ -162,6 +166,8 @@ export default function SignupPage() {
                 required
                 minLength={MIN_PASSWORD_LENGTH}
                 maxLength={200}
+                id="signup-password"
+                autoComplete="new-password"
                 value={form.password}
                 onChange={(e) => update("password", e.target.value)}
                 className="w-full px-4 py-2.5 pr-16 rounded-lg bg-white/5 border border-white/10 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all"
@@ -182,12 +188,14 @@ export default function SignupPage() {
           </div>
 
           <div>
-            <label className="block text-sm text-zinc-400 mb-1.5">
+            <label htmlFor="signup-confirm" className="block text-sm text-zinc-400 mb-1.5">
               Confirm Password
             </label>
             <input
               type={showPassword ? "text" : "password"}
               required
+              id="signup-confirm"
+              autoComplete="new-password"
               value={form.confirmPassword}
               onChange={(e) => update("confirmPassword", e.target.value)}
               className={`w-full px-4 py-2.5 rounded-lg bg-white/5 border text-sm focus:outline-none focus:ring-2 transition-all ${
@@ -203,11 +211,13 @@ export default function SignupPage() {
           </div>
 
           <div>
-            <label className="block text-sm text-zinc-400 mb-1.5">
+            <label htmlFor="signup-location" className="block text-sm text-zinc-400 mb-1.5">
               Location
             </label>
             <input
               type="text"
+              id="signup-location"
+              autoComplete="address-level2"
               value={form.location}
               maxLength={200}
               onChange={(e) => update("location", e.target.value)}
