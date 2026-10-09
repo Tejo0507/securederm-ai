@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from config.settings import JWT_SECRET, EMAIL_VERIFICATION_TOKEN_TTL_HOURS
 from web_backend.database import get_db
-from web_backend.db_models import Hospital
+from web_backend.db_models import Hospital, RevokedToken
 
 SECRET_KEY = JWT_SECRET
 TOKEN_EXPIRY = 86400  # 24 hours
@@ -207,7 +207,8 @@ def create_token(payload: dict) -> str:
         .decode()
         .rstrip("=")
     )
-    data = {**payload, "exp": time.time() + TOKEN_EXPIRY}
+    # jti uniquely names this token so it can be revoked individually.
+    data = {**payload, "exp": time.time() + TOKEN_EXPIRY, "jti": secrets.token_urlsafe(16)}
     body = (
         base64.urlsafe_b64encode(json.dumps(data).encode()).decode().rstrip("=")
     )
@@ -234,6 +235,18 @@ def decode_token(token: str) -> dict | None:
         return None
 
 
+def revoke_session_token(db: Session, token: str | None) -> None:
+    """Add a (valid) session token to the revocation list and prune old entries."""
+    payload = decode_token(token) if token else None
+    if not payload or not payload.get("jti"):
+        return
+    now = time.time()
+    db.query(RevokedToken).filter(RevokedToken.expires_at < now).delete()
+    if not db.get(RevokedToken, payload["jti"]):
+        db.add(RevokedToken(jti=payload["jti"], expires_at=float(payload["exp"])))
+    db.commit()
+
+
 async def get_current_hospital(
     request: Request,
     db: Session = Depends(get_db),
@@ -244,6 +257,8 @@ async def get_current_hospital(
     payload = decode_token(token)
     if payload is None:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
+    if payload.get("jti") and db.get(RevokedToken, payload["jti"]) is not None:
+        raise HTTPException(status_code=401, detail="Session has been signed out")
     hospital = (
         db.query(Hospital)
         .filter(Hospital.id == payload.get("hospital_id"))
