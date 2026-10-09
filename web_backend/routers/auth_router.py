@@ -6,7 +6,7 @@ from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from config.settings import EMAIL_SENDING_CONFIGURED
+from config.settings import DEV_TOKEN_ECHO
 from web_backend.database import get_db
 from web_backend.db_models import Dataset, Hospital, MLModel
 from web_backend.email_service import send_verification_email
@@ -124,7 +124,7 @@ async def signup(
     return SignupResponse(
         status="verification_email_sent",
         email=hospital.email,
-        dev_verification_token=None if EMAIL_SENDING_CONFIGURED else token,
+        dev_verification_token=token if DEV_TOKEN_ECHO else None,
     )
 
 
@@ -182,7 +182,7 @@ async def resend_verification(
     # for checking which emails have (unverified) accounts.
     return {
         "status": "if_account_exists_email_sent",
-        "dev_verification_token": None if EMAIL_SENDING_CONFIGURED else dev_token,
+        "dev_verification_token": dev_token if DEV_TOKEN_ECHO else None,
     }
 
 
