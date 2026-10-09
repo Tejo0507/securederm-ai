@@ -21,12 +21,20 @@ from config.settings import (
     SMTP_PASSWORD,
     SMTP_FROM_ADDRESS,
     SMTP_USE_TLS,
+    DEV_TOKEN_ECHO,
     EMAIL_SENDING_CONFIGURED,
     FRONTEND_URL,
     EMAIL_VERIFICATION_TOKEN_TTL_HOURS,
 )
 
 logger = logging.getLogger("web_backend.email")
+
+
+def mask_email(address: str) -> str:
+    """'jane.doe@hospital.org' -> 'j***@hospital.org' — enough to debug delivery
+    without writing a person's full address into log files."""
+    local, _, domain = address.partition("@")
+    return f"{local[:1]}***@{domain}" if domain else "***"
 
 
 def build_verification_link(token: str) -> str:
@@ -37,12 +45,19 @@ def send_verification_email(to_email: str, hospital_name: str, token: str) -> No
     link = build_verification_link(token)
 
     if not EMAIL_SENDING_CONFIGURED:
-        logger.warning(
-            "SMTP is not configured — not actually sending a verification "
-            "email to %s. Verification link (dev mode only): %s",
-            to_email,
-            link,
-        )
+        if DEV_TOKEN_ECHO:
+            logger.warning(
+                "SMTP is not configured — not sending a verification email to %s. "
+                "Verification link (dev mode only): %s",
+                mask_email(to_email),
+                link,
+            )
+        else:
+            # Never write a live verification link to production logs.
+            logger.error(
+                "SMTP is not configured; verification email to %s was not sent.",
+                mask_email(to_email),
+            )
         return
 
     message = EmailMessage()
@@ -68,4 +83,4 @@ def send_verification_email(to_email: str, hospital_name: str, token: str) -> No
         # A downstream mail failure shouldn't 500 the signup request the
         # user is sitting in front of — they can use "resend verification"
         # once the SMTP issue is fixed. Log it loudly so it isn't missed.
-        logger.exception("Failed to send verification email to %s", to_email)
+        logger.exception("Failed to send verification email to %s", mask_email(to_email))

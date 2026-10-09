@@ -130,6 +130,19 @@ SMTP_FROM_ADDRESS = os.getenv("SMTP_FROM_ADDRESS", SMTP_USER or "no-reply@secure
 SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").lower() != "false"
 EMAIL_SENDING_CONFIGURED = bool(SMTP_HOST and SMTP_USER and SMTP_PASSWORD)
 
+# Without SMTP the API echoes the verification token back so local signup
+# still works end to end. That is only safe in development: on a reachable
+# production deployment it lets anyone "verify" an email address they do not
+# own (and so take over that signup), so it is disabled when ENV=production.
+IS_PRODUCTION = os.getenv("ENV", "development").lower() == "production"
+DEV_TOKEN_ECHO = (not EMAIL_SENDING_CONFIGURED) and not IS_PRODUCTION
+if IS_PRODUCTION and not EMAIL_SENDING_CONFIGURED:
+    _logger.error(
+        "ENV=production but SMTP is not configured: verification emails cannot "
+        "be sent, so new accounts cannot be verified. Set SMTP_HOST, SMTP_USER "
+        "and SMTP_PASSWORD."
+    )
+
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 EMAIL_VERIFICATION_TOKEN_TTL_HOURS = 24
 
