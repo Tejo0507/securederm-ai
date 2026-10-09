@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
 from sqlalchemy.orm import Session
 
+from web_backend.audit import audit
 from web_backend.database import get_db
 from web_backend.db_models import Hospital, Dataset, MLModel
 from web_backend.auth import get_current_hospital, verify_csrf
@@ -105,6 +106,7 @@ async def upload_dataset(
             detail=f"Dataset limit reached ({MAX_IMAGES_PER_HOSPITAL} images).",
         )
 
+    audit("dataset_upload", hospital.id, images=saved)
     return {"uploaded": saved, "total_images": ds.image_count, "quota_reached": quota_hit}
 
 
@@ -129,6 +131,7 @@ async def delete_datasets(
     removed = wipe_hospital_files(hospital.id)
     db.query(Dataset).filter(Dataset.hospital_id == hospital.id).delete()
     db.commit()
+    audit("dataset_erased", hospital.id, images=removed)
     return {"deleted_images": removed}
 
 

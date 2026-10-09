@@ -1,12 +1,13 @@
 import time
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from config.settings import DEV_TOKEN_ECHO
+from web_backend.audit import audit, hash_identifier, read_events
 from web_backend.database import get_db
 from web_backend.db_models import Dataset, Hospital, MLModel
 from web_backend.email_service import send_verification_email
@@ -161,6 +162,7 @@ async def verify_email(
     # them turn around and enter their password again.
     session_token = create_token({"hospital_id": hospital.id, "email": hospital.email})
     set_session_cookies(response, session_token)
+    audit("email_verified", hospital.id)
     return _hospital_response(hospital)
 
 
@@ -203,6 +205,8 @@ async def login(
     hash_to_check = hospital.password_hash if hospital else DUMMY_PASSWORD_HASH
     password_ok = await run_in_threadpool(verify_password, payload.password, hash_to_check)
     if not hospital or not password_ok:
+        audit("login_failed", email_hash=hash_identifier(payload.email),
+              ip=request.client.host if request.client else None)
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     if not hospital.email_verified:
@@ -213,6 +217,7 @@ async def login(
 
     token = create_token({"hospital_id": hospital.id, "email": hospital.email})
     set_session_cookies(response, token)
+    audit("login", hospital.id, ip=request.client.host if request.client else None)
     return _hospital_response(hospital)
 
 
@@ -249,6 +254,7 @@ async def change_password(
 
     hospital.password_hash = await run_in_threadpool(hash_password, payload.new_password)
     db.commit()
+    audit("password_changed", hospital.id)
     # The old session may be in someone else's hands; end it and make the
     # user sign in again with the new password.
     revoke_session_token(db, request.cookies.get(SESSION_COOKIE_NAME))
@@ -282,8 +288,19 @@ async def delete_account(
     db.delete(hospital)
     db.commit()
     wipe_hospital_files(hospital_id)
+    audit("account_deleted", hospital_id)
     clear_session_cookies(response)
     return {"status": "account_deleted"}
+
+
+@router.get("/activity")
+async def my_activity(
+    limit: int = Query(default=50, ge=1, le=200),
+    hospital: Hospital = Depends(get_current_hospital),
+):
+    """The account's own recent security-relevant events (logins, uploads,
+    erasures, predictions), newest first — never anyone else's."""
+    return read_events(hospital.id, limit)
 
 
 @router.get("/me", response_model=HospitalResponse)

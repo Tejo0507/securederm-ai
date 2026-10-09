@@ -11,6 +11,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from PIL import Image
 
+from web_backend.audit import audit
 from web_backend.auth import get_current_hospital, verify_csrf
 from web_backend.db_models import Hospital
 from web_backend.image_validation import MAX_FILE_SIZE_BYTES, is_genuine_image
@@ -60,7 +61,13 @@ def predict_wound(  # sync def: FastAPI runs this in a worker thread, so a
         logger.exception("Prediction failed for hospital_id=%s", hospital.id)
         raise HTTPException(status_code=500, detail="Prediction failed.")
 
+    # Record that a prediction happened and which model made it — never the
+    # image or the diagnosis text.
+    audit("prediction", hospital.id, model_id=getattr(result, "model_id", None),
+          unknown=bool(result.is_unknown))
+
     return {
+        "model_id": getattr(result, "model_id", None),
         "predicted_class": result.predicted_class,
         "confidence": result.confidence,
         "is_unknown": result.is_unknown,
