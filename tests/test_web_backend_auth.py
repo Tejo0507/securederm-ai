@@ -283,6 +283,124 @@ class TestLoginAndAuth:
         assert client.post("/api/auth/logout").status_code == 200
 
 
+class TestSessionRevocation:
+    def test_logged_out_token_cannot_be_replayed(self, client):
+        _signup_and_verify(client, email="replay@example.com")
+        stolen = client.cookies.get(auth_module.SESSION_COOKIE_NAME)
+        assert client.get("/api/auth/me").status_code == 200
+
+        assert client.post("/api/auth/logout", headers=_csrf_headers(client)).status_code == 200
+
+        # Someone who copied the cookie before logout presents it again.
+        client.cookies.set(auth_module.SESSION_COOKIE_NAME, stolen)
+        assert client.get("/api/auth/me").status_code == 401
+
+    def test_other_sessions_stay_valid(self, client):
+        _signup_and_verify(client, email="keepA@example.com")
+        a_cookie = client.cookies.get(auth_module.SESSION_COOKIE_NAME)
+        _signup_and_verify(client, email="keepB@example.com")
+        client.post("/api/auth/logout", headers=_csrf_headers(client))
+        client.cookies.set(auth_module.SESSION_COOKIE_NAME, a_cookie)
+        assert client.get("/api/auth/me").status_code == 200
+
+
+class TestChangePassword:
+    def test_changes_password_and_ends_the_session(self, client):
+        _signup_and_verify(client, email="chgpw@example.com", password="correcthorse1")
+        resp = client.post(
+            "/api/auth/change-password", headers=_csrf_headers(client),
+            json={"current_password": "correcthorse1", "new_password": "batterystaple9"},
+        )
+        assert resp.status_code == 200
+        assert client.get("/api/auth/me").status_code == 401
+        email = "chgpw@example.com"
+        old = client.post("/api/auth/login", json={"email": email, "password": "correcthorse1"})
+        new = client.post("/api/auth/login", json={"email": email, "password": "batterystaple9"})
+        assert old.status_code == 401 and new.status_code == 200
+
+    def test_wrong_current_password_rejected(self, client):
+        _signup_and_verify(client, email="chgpw2@example.com", password="correcthorse1")
+        resp = client.post(
+            "/api/auth/change-password", headers=_csrf_headers(client),
+            json={"current_password": "nope-nope-nope", "new_password": "batterystaple9"},
+        )
+        assert resp.status_code == 401
+
+    def test_requires_csrf(self, client):
+        _signup_and_verify(client, email="chgpw3@example.com", password="correcthorse1")
+        resp = client.post(
+            "/api/auth/change-password",
+            json={"current_password": "correcthorse1", "new_password": "batterystaple9"},
+        )
+        assert resp.status_code == 403
+
+
+class TestDataErasure:
+    def _png(self, color=(1, 2, 3)):
+        buf = io.BytesIO()
+        Image.new("RGB", (8, 8), color=color).save(buf, format="PNG")
+        return buf.getvalue()
+
+    def test_delete_datasets_removes_files_and_records(self, client):
+        from web_backend.routers import hospital_router
+
+        _signup_and_verify(client, email="erase@example.com")
+        headers = _csrf_headers(client)
+        client.post("/api/datasets/upload", headers=headers,
+                    files={"files": ("a.png", self._png(), "image/png")})
+        hospital_id = client.get("/api/auth/me").json()["id"]
+        assert any((hospital_router.UPLOAD_DIR / str(hospital_id)).iterdir())
+
+        resp = client.delete("/api/datasets", headers=headers)
+        assert resp.status_code == 200 and resp.json()["deleted_images"] == 1
+        assert not (hospital_router.UPLOAD_DIR / str(hospital_id)).exists()
+        assert client.get("/api/datasets").json() == []
+
+    def test_delete_datasets_requires_csrf(self, client):
+        _signup_and_verify(client, email="erase2@example.com")
+        assert client.delete("/api/datasets").status_code == 403
+
+    def test_delete_account_needs_password_and_removes_everything(self, client):
+        from web_backend.routers import hospital_router
+
+        _signup_and_verify(client, email="bye@example.com", password="correcthorse1")
+        headers = _csrf_headers(client)
+        client.post("/api/datasets/upload", headers=headers,
+                    files={"files": ("a.png", self._png(), "image/png")})
+        hospital_id = client.get("/api/auth/me").json()["id"]
+
+        wrong = client.request("DELETE", "/api/auth/account", headers=headers,
+                               json={"password": "wrong-password"})
+        assert wrong.status_code == 401
+        assert client.get("/api/auth/me").status_code == 200
+
+        ok = client.request("DELETE", "/api/auth/account", headers=headers,
+                            json={"password": "correcthorse1"})
+        assert ok.status_code == 200
+        assert not (hospital_router.UPLOAD_DIR / str(hospital_id)).exists()
+        assert client.get("/api/auth/me").status_code == 401
+        login = client.post("/api/auth/login",
+                            json={"email": "bye@example.com", "password": "correcthorse1"})
+        assert login.status_code == 401
+
+
+class TestResendCooldown:
+    def test_second_resend_for_same_address_is_throttled(self, client):
+        from web_backend.routers import auth_router
+
+        auth_router._last_resend.clear()
+        signup = _signup(client, email="spamtarget@example.com")
+        assert signup.status_code == 200
+        body = {"email": "spamtarget@example.com"}
+        first = client.post("/api/auth/resend-verification", json=body)
+        second = client.post("/api/auth/resend-verification", json=body)
+        # Same public response either way (no enumeration), but only the
+        # first issues a token.
+        assert first.json()["status"] == second.json()["status"]
+        assert first.json()["dev_verification_token"]
+        assert second.json()["dev_verification_token"] is None
+
+
 class TestLoginRateLimit:
     def test_login_rate_limited_after_repeated_failures(self, client):
         _signup_and_verify(client, email="ratelimit@example.com", password="correcthorse1")
