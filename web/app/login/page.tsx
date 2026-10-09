@@ -114,8 +114,10 @@ export default function LoginPage() {
           )}
 
           <div>
-            <label className="block text-sm text-zinc-400 mb-1.5">Email</label>
+            <label htmlFor="login-email" className="block text-sm text-zinc-400 mb-1.5">Email</label>
             <input
+              id="login-email"
+              autoComplete="email"
               type="email"
               required
               value={email}
@@ -126,11 +128,13 @@ export default function LoginPage() {
           </div>
 
           <div>
-            <label className="block text-sm text-zinc-400 mb-1.5">
+            <label htmlFor="login-password" className="block text-sm text-zinc-400 mb-1.5">
               Password
             </label>
             <div className="relative">
               <input
+                id="login-password"
+                autoComplete="current-password"
                 type={showPassword ? "text" : "password"}
                 required
                 value={password}

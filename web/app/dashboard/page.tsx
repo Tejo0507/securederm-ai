@@ -254,6 +254,47 @@ function DataTab() {
   const [uploading, setUploading] = useState(false);
   const [msg, setMsg] = useState("");
   const [msgIsError, setMsgIsError] = useState(false);
+  const router = useRouter();
+  const [erasing, setErasing] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+
+  async function eraseData() {
+    if (!window.confirm("Delete all uploaded images? This cannot be undone.")) return;
+    setErasing(true);
+    try {
+      const res = await apiFetch<{ deleted_images: number }>("/api/datasets", {
+        method: "DELETE",
+      });
+      setMsgIsError(false);
+      setMsg(`Deleted ${res.deleted_images} images`);
+      loadDatasets();
+    } catch (err: unknown) {
+      setMsgIsError(true);
+      setMsg(err instanceof Error ? err.message : "Could not delete images.");
+    } finally {
+      setErasing(false);
+    }
+  }
+
+  async function deleteAccount(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!window.confirm("Permanently delete your account and all data?")) return;
+    setDeleting(true);
+    setDeleteError("");
+    try {
+      await apiFetch("/api/auth/account", {
+        method: "DELETE",
+        body: JSON.stringify({ password: deletePassword }),
+      });
+      localStorage.removeItem("hospital");
+      router.push("/");
+    } catch (err: unknown) {
+      setDeleteError(err instanceof Error ? err.message : "Could not delete account.");
+      setDeleting(false);
+    }
+  }
 
   const loadDatasets = useCallback(() => {
     apiFetch<typeof datasets>("/api/datasets").then(setDatasets).catch(() => {});
@@ -384,6 +425,49 @@ function DataTab() {
             ))}
           </div>
         )}
+        {datasets.length > 0 && (
+          <button
+            onClick={eraseData}
+            disabled={erasing}
+            className="mt-4 text-xs text-rose-400 hover:text-rose-300 disabled:opacity-50 transition-colors"
+          >
+            {erasing ? "Deleting..." : "Delete all uploaded images"}
+          </button>
+        )}
+      </div>
+
+      {/* danger zone */}
+      <div className="glass rounded-xl p-6 border border-rose-500/20">
+        <h3 className="font-semibold mb-1 text-rose-300">Delete account</h3>
+        <p className="text-xs text-zinc-500 mb-4">
+          Permanently removes your hospital account and every uploaded image.
+          This cannot be undone.
+        </p>
+        <form onSubmit={deleteAccount} className="flex flex-wrap gap-3 items-end">
+          <div className="flex-1 min-w-[200px]">
+            <label htmlFor="delete-password" className="block text-xs text-zinc-500 mb-1">
+              Confirm with your password
+            </label>
+            <input
+              id="delete-password"
+              type="password"
+              autoComplete="current-password"
+              required
+              maxLength={200}
+              value={deletePassword}
+              onChange={(e) => setDeletePassword(e.target.value)}
+              className="w-full px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500/50"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={deleting || !deletePassword}
+            className="px-4 py-2 rounded-lg bg-rose-600/80 hover:bg-rose-600 disabled:opacity-50 text-sm font-medium transition-colors"
+          >
+            {deleting ? "Deleting..." : "Delete account"}
+          </button>
+        </form>
+        {deleteError && <p className="mt-3 text-sm text-rose-400">{deleteError}</p>}
       </div>
     </motion.div>
   );
