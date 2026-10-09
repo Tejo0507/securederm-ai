@@ -590,8 +590,12 @@ async def get_model_info(x_node_token: str | None = Header(None, alias="X-Node-T
 
 
 @app.get("/status")
-async def server_status():
-    """Health check / status endpoint."""
+async def server_status(x_node_token: str | None = Header(None, alias="X-Node-Token")):
+    """Health check. Anonymous callers (load balancers, healthchecks) get only
+    liveness; how many hospitals are enrolled or mid-round is network
+    information that needs a node or admin token."""
+    if not _is_authorized(x_node_token):
+        return {"status": "running"}
     return {
         "status": "running",
         "model_version": model_version,

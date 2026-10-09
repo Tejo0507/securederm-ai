@@ -16,6 +16,7 @@ from torch.utils.data import DataLoader, Dataset
 
 from config.settings import (
     BATCH_SIZE,
+    DP_DELTA,
     DP_EPSILON,
     DP_MIN_TRAIN_SAMPLES,
     LEARNING_RATE,
@@ -97,6 +98,14 @@ def train_local(
     # BatchNorm (non-DP path) raises on a training batch of exactly one
     # sample, so drop a trailing singleton batch. The DP path samples its
     # own batches via Opacus, so this only matters without it.
+    # delta is the probability the guarantee fails; the standard requirement is
+    # delta << 1/n, otherwise "(eps, delta)-DP" permits releasing whole records.
+    if USE_DIFFERENTIAL_PRIVACY and DP_DELTA * len(dataset) >= 1:
+        logger.warning(
+            "DP_DELTA=%g is not smaller than 1/n (n=%d); the privacy guarantee is "
+            "weak for a dataset this small. Lower DP_DELTA.", DP_DELTA, len(dataset),
+        )
+
     drop_last = (
         not USE_DIFFERENTIAL_PRIVACY
         and len(dataset) > batch_size
