@@ -16,12 +16,19 @@ def client():
 
 
 class TestServerEndpoints:
-    def test_status(self, client):
+    def test_status_is_liveness_only_for_anonymous_callers(self, client):
         resp = client.get("/status")
         assert resp.status_code == 200
-        data = resp.json()
+        # Enrolment/round counts are network information, not for the public.
+        assert resp.json() == {"status": "running"}
+
+    def test_status_details_need_a_token(self, client):
+        token = client.post("/node/register", json={
+            "hospital_id": "status_node", "dataset_size": 5,
+        }).json()["node_token"]
+        data = client.get("/status", headers={"X-Node-Token": token}).json()
         assert data["status"] == "running"
-        assert "model_version" in data
+        assert {"model_version", "registered_nodes", "pending_updates"} <= set(data)
 
     def test_register_node(self, client):
         resp = client.post("/node/register", json={

@@ -147,7 +147,11 @@ docker compose up --build
 
 This starts the aggregator, both hospital nodes, the web backend
 (http://localhost:8001) and the web frontend (http://localhost:3000).
-Published ports are bound to `127.0.0.1`; containers run as an unprivileged
+The web backend runs with `ENV=production`, which **disables the dev
+shortcut that echoes the email-verification token in the signup response**
+(otherwise anyone could verify an address they don't own). To create accounts
+under Docker, configure `SMTP_HOST` / `SMTP_USER` / `SMTP_PASSWORD`, or set
+`ENV=development` for a local-only demo. Published ports are bound to `127.0.0.1`; containers run as an unprivileged
 user. The SQLite database lives in `./data/`, and the aggregator's global
 model in `./checkpoints/`. To point the frontend at a different API URL, set
 `NEXT_PUBLIC_API_URL` before `docker compose build` (it is baked into the
