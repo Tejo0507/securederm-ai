@@ -89,8 +89,10 @@ class _ImageSamplesDataset(Dataset):
             try:
                 return self._load(candidate)
             except (OSError, UnidentifiedImageError, ValueError, SyntaxError) as exc:
+                # Log the sample index, never the filename: clinical file names
+                # often embed patient names or record numbers.
                 logger.warning(
-                    "Skipping unreadable image %s: %s", self.samples[candidate][0].name, exc
+                    "Skipping unreadable image #%d: %s", candidate, type(exc).__name__
                 )
         raise RuntimeError(f"No readable images in {self.root_dir}.")
 
