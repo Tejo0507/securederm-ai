@@ -118,11 +118,17 @@ app = FastAPI(
 )
 
 _default_cors_origins = "http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000"
+_cors_origins = [
+    o.strip() for o in os.getenv("CORS_ORIGINS", _default_cors_origins).split(",") if o.strip()
+]
+if "*" in _cors_origins:
+    # A wildcard with allow_credentials=True would let any website make
+    # authenticated requests with a visitor's session cookie.
+    logger.warning("Ignoring '*' in CORS_ORIGINS: credentialed requests need explicit origins.")
+    _cors_origins = [o for o in _cors_origins if o != "*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        o.strip() for o in os.getenv("CORS_ORIGINS", _default_cors_origins).split(",") if o.strip()
-    ],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
