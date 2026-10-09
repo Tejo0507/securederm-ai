@@ -384,6 +384,39 @@ class TestDataErasure:
         assert login.status_code == 401
 
 
+class TestVerificationTokenEcho:
+    def test_token_is_not_echoed_when_dev_echo_is_off(self, client, monkeypatch):
+        # In production without SMTP, echoing the token would let anyone
+        # verify an email address they do not own.
+        from web_backend.routers import auth_router
+
+        monkeypatch.setattr(auth_router, "DEV_TOKEN_ECHO", False)
+        resp = _signup(client, email="noecho@example.com")
+        assert resp.status_code == 200
+        assert resp.json()["dev_verification_token"] is None
+
+    def test_production_never_enables_the_echo(self):
+        import importlib
+
+        import config.settings as settings
+
+        original = dict(__import__("os").environ)
+        try:
+            __import__("os").environ["ENV"] = "production"
+            reloaded = importlib.reload(settings)
+            assert reloaded.DEV_TOKEN_ECHO is False
+        finally:
+            __import__("os").environ.clear()
+            __import__("os").environ.update(original)
+            importlib.reload(settings)
+
+    def test_email_addresses_are_masked_for_logs(self):
+        from web_backend.email_service import mask_email
+
+        assert mask_email("jane.doe@hospital.org") == "j***@hospital.org"
+        assert mask_email("garbage") == "***"
+
+
 class TestResendCooldown:
     def test_second_resend_for_same_address_is_throttled(self, client):
         from web_backend.routers import auth_router

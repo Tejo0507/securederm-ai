@@ -77,6 +77,32 @@ class TestPrivacyBudget:
             PrivacyBudget("node_a", total_budget=5, directory=tmp_path)
 
 
+class TestLogHygiene:
+    def test_unreadable_image_log_omits_the_filename(self, tmp_path, caplog):
+        from PIL import Image
+
+        from hospital_node.dataset_loader import KaggleWoundDataset
+
+        folder = tmp_path / "Abrasions"
+        folder.mkdir()
+        Image.new("RGB", (8, 8)).save(folder / "good.png")
+        (folder / "JANE_DOE_MRN4471.png").write_bytes(b"corrupt")
+
+        ds = KaggleWoundDataset(str(tmp_path), training=False)
+        with caplog.at_level("WARNING", logger="hospital_node.dataset"):
+            for i in range(len(ds)):
+                ds[i]
+        assert "Skipping unreadable image" in caplog.text
+        assert "JANE" not in caplog.text and "MRN4471" not in caplog.text
+
+    def test_delta_not_below_one_over_n_warns(self, monkeypatch, caplog):
+        monkeypatch.setattr(train_module, "DP_DELTA", 0.5)
+        monkeypatch.setattr(train_module, "USE_DIFFERENTIAL_PRIVACY", True)
+        with caplog.at_level("WARNING", logger="hospital_node"):
+            train_module.train_local(dataset=_Tiny(), batch_size=4, epochs=1)
+        assert "DP_DELTA" in caplog.text
+
+
 class TestMinimumDatasetSize:
     def test_dp_refuses_tiny_datasets(self, monkeypatch):
         monkeypatch.setattr(train_module, "USE_DIFFERENTIAL_PRIVACY", True)
