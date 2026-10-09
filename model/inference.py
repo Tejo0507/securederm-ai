@@ -11,6 +11,7 @@ report that explicitly instead of guessing, so a novel case gets routed
 to a doctor rather than mislabeled with false confidence.
 """
 
+import hashlib
 import math
 from dataclasses import dataclass, field
 
@@ -51,6 +52,17 @@ class PredictionResult:
     top_predictions: list[dict] = field(default_factory=list)
     # Normalized Shannon entropy in [0, 1]; 1 = completely undecided.
     uncertainty: float = 0.0
+    # Short SHA-256 of the checkpoint that produced this result, so a clinical
+    # decision can later be traced to the exact model version.
+    model_id: str = ""
+
+
+def _checkpoint_id(path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()[:12]
 
 
 class WoundPredictor:
@@ -63,6 +75,7 @@ class WoundPredictor:
         if not self.model_path.exists():
             raise FileNotFoundError(f"No saved model found at {self.model_path}")
 
+        self.model_id = _checkpoint_id(self.model_path)
         weights = torch.load(self.model_path, map_location=self.device, weights_only=True)
         self.model = build_model_for_state_dict(weights, device=self.device)
 
@@ -133,6 +146,7 @@ class WoundPredictor:
             class_probabilities=class_probabilities,
             top_predictions=top_predictions,
             uncertainty=uncertainty,
+            model_id=getattr(self, "model_id", ""),
         )
 
 
