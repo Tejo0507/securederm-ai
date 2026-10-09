@@ -15,6 +15,7 @@ Usage:
 """
 
 import argparse
+import os
 import sqlite3
 import sys
 from datetime import datetime, timezone
@@ -25,11 +26,19 @@ from web_backend.database import DB_PATH
 BACKUP_DIR = Path(__file__).resolve().parent.parent / "backups"
 
 
+def _restrict(path: Path, mode: int) -> None:
+    try:
+        os.chmod(path, mode)
+    except OSError:
+        pass  # filesystems without POSIX permissions
+
+
 def backup_database(source_path: Path, backup_dir: Path) -> Path:
     if not source_path.exists():
         raise FileNotFoundError(f"No database found at {source_path}")
 
     backup_dir.mkdir(parents=True, exist_ok=True)
+    _restrict(backup_dir, 0o700)
     # Microsecond precision so two backups run in quick succession (e.g. a
     # script calling this twice in a test, or a tight manual retry) don't
     # collide on the same filename and silently overwrite one another.
@@ -40,6 +49,9 @@ def backup_database(source_path: Path, backup_dir: Path) -> Path:
     try:
         dest_conn = sqlite3.connect(str(dest_path))
         try:
+            # The snapshot holds emails and password hashes: owner-only,
+            # applied before any data is written into it (no-op on Windows).
+            _restrict(dest_path, 0o600)
             source_conn.backup(dest_conn)
         finally:
             dest_conn.close()
