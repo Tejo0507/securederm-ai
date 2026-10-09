@@ -1,3 +1,4 @@
+import time
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -7,9 +8,12 @@ from sqlalchemy.orm import Session
 
 from config.settings import EMAIL_SENDING_CONFIGURED
 from web_backend.database import get_db
-from web_backend.db_models import Hospital
+from web_backend.db_models import Dataset, Hospital, MLModel
 from web_backend.email_service import send_verification_email
+from web_backend.routers.hospital_router import wipe_hospital_files
 from web_backend.schemas import (
+    ChangePasswordRequest,
+    DeleteAccountRequest,
     HospitalSignup,
     HospitalLogin,
     HospitalResponse,
@@ -25,6 +29,7 @@ from web_backend.auth import (
     enforce_auth_rate_limit,
     set_session_cookies,
     clear_session_cookies,
+    revoke_session_token,
     SESSION_COOKIE_NAME,
     verify_csrf,
     generate_email_verification_token,
@@ -34,6 +39,24 @@ from web_backend.auth import (
 )
 
 router = APIRouter()
+
+# The per-IP rate limit alone lets an attacker spread requests over many IPs
+# to flood one victim's inbox with verification mail. Also throttle per
+# address. In-memory, like the IP limiter: adequate for one instance.
+RESEND_COOLDOWN_SECONDS = 60
+_last_resend: dict[str, float] = {}
+
+
+def _resend_allowed(email: str) -> bool:
+    now = time.time()
+    if len(_last_resend) > 10_000:   # keep the table bounded
+        for key in [k for k, t in _last_resend.items() if now - t > RESEND_COOLDOWN_SECONDS]:
+            del _last_resend[key]
+    last = _last_resend.get(email)
+    if last is not None and now - last < RESEND_COOLDOWN_SECONDS:
+        return False
+    _last_resend[email] = now
+    return True
 
 
 def _hospital_response(hospital: Hospital) -> HospitalResponse:
@@ -151,7 +174,7 @@ async def resend_verification(
     hospital = db.query(Hospital).filter(Hospital.email == payload.email).first()
 
     dev_token = None
-    if hospital is not None and not hospital.email_verified:
+    if hospital is not None and not hospital.email_verified and _resend_allowed(hospital.email):
         dev_token = await _issue_verification(hospital, db)
 
     # Same response whether the account exists, is already verified, or
@@ -194,16 +217,73 @@ async def login(
 
 
 @router.post("/logout")
-async def logout(response: Response, request: Request):
+async def logout(response: Response, request: Request, db: Session = Depends(get_db)):
     # Deliberately does not require a *valid* session: with an expired or
     # revoked one, a get_current_hospital dependency answered 401 and the
     # stale cookies could never be cleared. CSRF is still enforced whenever
     # a session cookie is actually present, so a third-party page can't
     # silently log a user out.
-    if request.cookies.get(SESSION_COOKIE_NAME):
+    session_cookie = request.cookies.get(SESSION_COOKIE_NAME)
+    if session_cookie:
         verify_csrf(request)
+        # Stateless tokens would otherwise stay usable until they expire,
+        # even for someone who copied the cookie before the user logged out.
+        revoke_session_token(db, session_cookie)
     clear_session_cookies(response)
     return {"status": "logged_out"}
+
+
+@router.post("/change-password")
+async def change_password(
+    payload: ChangePasswordRequest,
+    request: Request,
+    response: Response,
+    hospital: Hospital = Depends(get_current_hospital),
+    db: Session = Depends(get_db),
+):
+    verify_csrf(request)
+    enforce_auth_rate_limit(request, "change-password")
+    ok = await run_in_threadpool(verify_password, payload.current_password, hospital.password_hash)
+    if not ok:
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+
+    hospital.password_hash = await run_in_threadpool(hash_password, payload.new_password)
+    db.commit()
+    # The old session may be in someone else's hands; end it and make the
+    # user sign in again with the new password.
+    revoke_session_token(db, request.cookies.get(SESSION_COOKIE_NAME))
+    clear_session_cookies(response)
+    return {"status": "password_changed"}
+
+
+@router.delete("/account")
+async def delete_account(
+    payload: DeleteAccountRequest,
+    request: Request,
+    response: Response,
+    hospital: Hospital = Depends(get_current_hospital),
+    db: Session = Depends(get_db),
+):
+    """Permanently delete the hospital, its uploaded images and dataset records.
+
+    Requires the password again, so a hijacked session alone cannot destroy
+    an account.
+    """
+    verify_csrf(request)
+    enforce_auth_rate_limit(request, "delete-account")
+    ok = await run_in_threadpool(verify_password, payload.password, hospital.password_hash)
+    if not ok:
+        raise HTTPException(status_code=401, detail="Password is incorrect")
+
+    hospital_id = hospital.id
+    revoke_session_token(db, request.cookies.get(SESSION_COOKIE_NAME))
+    db.query(Dataset).filter(Dataset.hospital_id == hospital_id).delete()
+    db.query(MLModel).filter(MLModel.created_by == hospital_id).update({MLModel.created_by: None})
+    db.delete(hospital)
+    db.commit()
+    wipe_hospital_files(hospital_id)
+    clear_session_cookies(response)
+    return {"status": "account_deleted"}
 
 
 @router.get("/me", response_model=HospitalResponse)

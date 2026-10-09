@@ -19,6 +19,15 @@ class Hospital(Base):
     email_verification_expires_at = Column(DateTime, nullable=True)
 
 
+class RevokedToken(Base):
+    """Session tokens invalidated before their natural expiry (logout,
+    password change, account deletion). Stateless tokens otherwise stay
+    valid until they expire, even after the user logs out."""
+    __tablename__ = "revoked_tokens"
+    jti = Column(String(64), primary_key=True)
+    expires_at = Column(Float, nullable=False, index=True)   # unix time; prune after this
+
+
 class Dataset(Base):
     __tablename__ = "datasets"
     id = Column(Integer, primary_key=True, index=True)

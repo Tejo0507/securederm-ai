@@ -1,5 +1,6 @@
 import hashlib
 import os
+import shutil
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
@@ -105,6 +106,30 @@ async def upload_dataset(
         )
 
     return {"uploaded": saved, "total_images": ds.image_count, "quota_reached": quota_hit}
+
+
+def wipe_hospital_files(hospital_id: int) -> int:
+    """Delete every stored image for a hospital; returns how many were removed."""
+    hospital_dir = UPLOAD_DIR / str(hospital_id)
+    if not hospital_dir.is_dir():
+        return 0
+    removed = sum(1 for p in hospital_dir.iterdir() if p.is_file())
+    shutil.rmtree(hospital_dir, ignore_errors=True)
+    return removed
+
+
+@router.delete("/datasets")
+async def delete_datasets(
+    request: Request,
+    hospital: Hospital = Depends(get_current_hospital),
+    db: Session = Depends(get_db),
+):
+    """Erase all of this hospital's uploaded images and their dataset records."""
+    verify_csrf(request)
+    removed = wipe_hospital_files(hospital.id)
+    db.query(Dataset).filter(Dataset.hospital_id == hospital.id).delete()
+    db.commit()
+    return {"deleted_images": removed}
 
 
 @router.get("/datasets")

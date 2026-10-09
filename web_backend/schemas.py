@@ -36,6 +36,24 @@ class HospitalSignup(BaseModel):
         return v
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=200)
+    new_password: str = Field(min_length=8, max_length=200)
+
+    @field_validator("new_password")
+    @classmethod
+    def _reject_common_password(cls, v: str) -> str:
+        if v.lower() in _COMMON_WEAK_PASSWORDS:
+            raise ValueError(
+                "This password is too common. Please choose a less predictable one."
+            )
+        return v
+
+
+class DeleteAccountRequest(BaseModel):
+    password: str = Field(min_length=1, max_length=200)
+
+
 class HospitalLogin(BaseModel):
     email: EmailStr
     password: str = Field(min_length=1, max_length=200)
