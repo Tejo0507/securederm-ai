@@ -384,6 +384,53 @@ class TestDataErasure:
         assert login.status_code == 401
 
 
+class TestAuditTrail:
+    def test_login_and_failures_are_recorded_without_the_email(self, client):
+        from web_backend.audit import AUDIT_LOG_PATH
+
+        _signup_and_verify(client, email="audited@example.com", password="correcthorse1")
+        client.post("/api/auth/login",
+                    json={"email": "audited@example.com", "password": "wrong-password"})
+        client.post("/api/auth/login",
+                    json={"email": "audited@example.com", "password": "correcthorse1"})
+
+        raw = AUDIT_LOG_PATH.read_text()
+        assert "login_failed" in raw and '"action":"login"' in raw
+        assert "audited@example.com" not in raw   # only a hash is stored
+
+    def test_activity_endpoint_returns_only_my_events(self, client):
+        _signup_and_verify(client, email="mine@example.com", password="correcthorse1")
+        me = client.get("/api/auth/me").json()["id"]
+        buf = io.BytesIO()
+        Image.new("RGB", (8, 8), color=(5, 5, 5)).save(buf, format="PNG")
+        client.post("/api/datasets/upload", headers=_csrf_headers(client),
+                    files={"files": ("a.png", buf.getvalue(), "image/png")})
+
+        # A different hospital does something too.
+        client.post("/api/auth/logout", headers=_csrf_headers(client))
+        _signup_and_verify(client, email="other@example.com", password="correcthorse1")
+        other = client.get("/api/auth/me").json()["id"]
+        client.post("/api/auth/logout", headers=_csrf_headers(client))
+        client.post("/api/auth/login",
+                    json={"email": "mine@example.com", "password": "correcthorse1"})
+
+        events = client.get("/api/auth/activity").json()
+        assert events and all(e["hospital_id"] == me for e in events)
+        assert any(e["action"] == "dataset_upload" and e["images"] == 1 for e in events)
+        assert other not in {e["hospital_id"] for e in events}
+
+    def test_activity_requires_login(self, client):
+        assert client.get("/api/auth/activity").status_code == 401
+
+    def test_audit_failure_never_breaks_a_request(self, client, monkeypatch):
+        from web_backend import audit as audit_module
+
+        monkeypatch.setattr(audit_module, "_ensure_handler",
+                            lambda: (_ for _ in ()).throw(OSError("disk full")))
+        _signup_and_verify(client, email="resilient@example.com", password="correcthorse1")
+        assert client.get("/api/auth/me").status_code == 200
+
+
 class TestVerificationTokenEcho:
     def test_token_is_not_echoed_when_dev_echo_is_off(self, client, monkeypatch):
         # In production without SMTP, echoing the token would let anyone

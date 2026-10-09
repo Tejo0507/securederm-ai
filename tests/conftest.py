@@ -38,3 +38,7 @@ os.environ["UPLOAD_DIR"] = tempfile.mkdtemp(prefix="securederm_test_uploads_")
 # The aggregator persists its global model to checkpoints/ after each round;
 # tests must never write into (or restore from) the real checkpoints dir.
 os.environ["AGGREGATOR_PERSIST"] = "false"
+# The audit trail writes JSON lines to logs/audit.log; keep tests out of it.
+os.environ["AUDIT_LOG_PATH"] = os.path.join(
+    tempfile.mkdtemp(prefix="securederm_test_audit_"), "audit.log"
+)
