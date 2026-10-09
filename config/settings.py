@@ -96,6 +96,11 @@ USE_DIFFERENTIAL_PRIVACY = True
 DP_EPSILON = 3.0
 DP_DELTA = 1e-5
 DP_MAX_GRAD_NORM = 1.0
+# Draw DP noise from a cryptographically secure RNG (Opacus secure_mode). The
+# default generator is fine for experiments but its noise is predictable to an
+# attacker who can recover its state; enable this for real deployments
+# (requires the torchcsprng package).
+DP_SECURE_MODE = os.getenv("DP_SECURE_MODE", "false").lower() == "true"
 # Smallest local dataset a node may train on with DP enabled.
 DP_MIN_TRAIN_SAMPLES = int(os.getenv("DP_MIN_TRAIN_SAMPLES", "8"))
 # Lifetime epsilon a node may spend across all federated rounds (each round

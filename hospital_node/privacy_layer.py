@@ -24,6 +24,7 @@ from config.settings import (
     DP_EPSILON,
     DP_DELTA,
     DP_MAX_GRAD_NORM,
+    DP_SECURE_MODE,
     DP_TOTAL_EPSILON_BUDGET,
     LOCAL_EPOCHS,
     LEARNING_RATE,
@@ -119,7 +120,13 @@ def attach_privacy_engine(
     PrivacyEngine as a fourth item when `return_engine` is true — the engine
     is the only way to ask how much privacy budget was actually spent.
     """
-    privacy_engine = PrivacyEngine()
+    try:
+        privacy_engine = PrivacyEngine(secure_mode=DP_SECURE_MODE)
+    except ImportError as exc:
+        raise RuntimeError(
+            "DP_SECURE_MODE=true needs a cryptographically secure RNG (the "
+            "torchcsprng package). Install it, or unset DP_SECURE_MODE."
+        ) from exc
 
     model, optimizer, data_loader = privacy_engine.make_private_with_epsilon(
         module=model,
