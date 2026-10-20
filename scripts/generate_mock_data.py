@@ -100,19 +100,33 @@ def generate_hospital_dataset(
     return hospital_dir
 
 
+MAX_HOSPITALS = 26   # hospital_A .. hospital_Z
+
+
+def _int_between(low: int, high: int | None = None):
+    def parse(value: str) -> int:
+        number = int(value)
+        if number < low or (high is not None and number > high):
+            bound = f"at least {low}" if high is None else f"between {low} and {high}"
+            raise argparse.ArgumentTypeError(f"must be {bound}")
+        return number
+
+    return parse
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Generate mock wound datasets for SecureDerm AI"
     )
     parser.add_argument(
         "--hospitals",
-        type=int,
+        type=_int_between(1, MAX_HOSPITALS),
         default=2,
-        help="Number of hospital datasets to generate (default: 2)",
+        help=f"Number of hospital datasets to generate, 1-{MAX_HOSPITALS} (default: 2)",
     )
     parser.add_argument(
         "--images-per-class",
-        type=int,
+        type=_int_between(1),
         default=25,
         help="Images per class per hospital (default: 25)",
     )
