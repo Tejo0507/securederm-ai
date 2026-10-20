@@ -40,7 +40,9 @@ class TestMain:
             return _FakeProcess(code)
 
         monkeypatch.setattr(run_demo.subprocess, "Popen", fake_popen)
-        monkeypatch.setattr(run_demo.subprocess, "run", lambda command, **kw: follow_ups.append(command))
+        monkeypatch.setattr(
+            run_demo.subprocess, "run", lambda command, **kw: follow_ups.append(command)
+        )
         monkeypatch.setattr(run_demo, "wait_for_server", lambda url: True)
         monkeypatch.setattr(run_demo, "save_round_metrics", lambda url, token="": [])
         monkeypatch.setattr(run_demo, "save_global_model", lambda url, token="": True)
