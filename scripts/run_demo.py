@@ -42,7 +42,9 @@ def wait_for_server(url: str, timeout: int = 30) -> bool:
             resp = requests.get(f"{url}/status", timeout=2)
             if resp.status_code == 200:
                 return True
-        except requests.ConnectionError:
+        except requests.RequestException:
+            # Refused while it boots, or a ReadTimeout once the port is bound
+            # but the app is still loading; keep waiting either way.
             pass
         time.sleep(1)
     return False
