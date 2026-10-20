@@ -10,6 +10,7 @@ endpoint, logged in or not.
 
 import os
 import tempfile
+import time
 
 _TEST_DB_DIR = tempfile.mkdtemp(prefix="securederm_test_")
 os.environ["DATABASE_URL"] = f"sqlite:///{os.path.join(_TEST_DB_DIR, 'test.db')}"
@@ -109,6 +110,43 @@ class TestTrainingStateIsolation:
         _signup_and_verify(client, "trainingcsrf@example.com")
         resp = client.post("/api/training/start")  # no CSRF header
         assert resp.status_code == 403
+
+
+class TestNetworkMetrics:
+    def _run_to_completion(self, client, monkeypatch):
+        async def _instant(*args, **kwargs):
+            return None
+
+        monkeypatch.setattr(training_router.asyncio, "sleep", _instant)
+        assert client.post(
+            "/api/training/start", headers=_csrf_headers(client)
+        ).json()["status"] == "started"
+        for _ in range(100):
+            if not client.get("/api/training/status").json()["active"]:
+                return
+            time.sleep(0.05)
+        raise AssertionError("simulation did not finish")
+
+    def test_a_comma_in_the_hospital_name_does_not_inflate_the_node_count(
+        self, client, monkeypatch
+    ):
+        # participating_hospitals is a comma-joined string, and the node count
+        # is read back by splitting it; a name like this used to count as 3.
+        _signup_and_verify(client, "commaname@example.com", name="St. Mary's, Boston")
+        self._run_to_completion(client, monkeypatch)
+
+        metrics = client.get("/api/training/metrics").json()["metrics"]
+
+        assert metrics and all(m["nodes"] == 2 for m in metrics)
+
+    def test_an_ordinary_name_is_stored_unchanged(self, client, monkeypatch):
+        _signup_and_verify(client, "plainname@example.com", name="Riverside Clinic")
+        self._run_to_completion(client, monkeypatch)
+
+        rounds = client.get("/api/federated/rounds").json()
+
+        assert any(r["participating_hospitals"] == "Riverside Clinic, City General Hospital"
+                   for r in rounds)
 
 
 class TestSimulationRobustness:
