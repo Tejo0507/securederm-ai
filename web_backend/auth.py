@@ -153,6 +153,30 @@ def enforce_auth_rate_limit(request: Request, bucket: str) -> None:
         _sweep_expired_rate_limit_entries(now)
 
 
+def enforce_account_rate_limit(
+    hospital_id: int, bucket: str, max_requests: int, window_seconds: int = 60
+) -> None:
+    """Sliding-window limit per signed-in account (rather than per IP), for
+    endpoints that cost real CPU such as model inference. `max_requests` of 0
+    disables the limit. Shares the in-memory table of the auth limiter, so it
+    has the same single-process caveat."""
+    if max_requests <= 0:
+        return
+    key = f"{bucket}:account:{hospital_id}"
+    now = time.time()
+    attempts = _auth_attempts[key]
+    while attempts and now - attempts[0] > window_seconds:
+        attempts.popleft()
+    if len(attempts) >= max_requests:
+        retry_after = max(1, int(window_seconds - (now - attempts[0])) + 1)
+        raise HTTPException(
+            status_code=429,
+            detail="Too many requests. Please slow down and try again shortly.",
+            headers={"Retry-After": str(retry_after)},
+        )
+    attempts.append(now)
+
+
 # OWASP's 2023 minimum for PBKDF2-HMAC-SHA256. The iteration count is
 # encoded into every new hash (django-style "algorithm$iterations$salt$hash")
 # specifically so it can be raised again later without invalidating
