@@ -12,8 +12,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from PIL import Image
 from sqlalchemy.orm import Session
 
+from config.settings import PREDICT_RATE_LIMIT_PER_MINUTE
 from web_backend.audit import audit
-from web_backend.auth import get_current_hospital, verify_csrf
+from web_backend.auth import enforce_account_rate_limit, get_current_hospital, verify_csrf
 from web_backend.database import get_db
 from web_backend.db_models import Hospital
 from web_backend.prediction_history import record_prediction
@@ -34,6 +35,7 @@ def predict_wound(  # sync def: FastAPI runs this in a worker thread, so a
     db: Session = Depends(get_db),
 ):
     verify_csrf(request)
+    enforce_account_rate_limit(hospital.id, "predict", PREDICT_RATE_LIMIT_PER_MINUTE)
 
     content = file.file.read(MAX_FILE_SIZE_BYTES + 1)
     if len(content) > MAX_FILE_SIZE_BYTES:
