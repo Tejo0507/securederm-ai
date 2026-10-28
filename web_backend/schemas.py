@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 # NIST 800-63B recommends checking new passwords against known-weak /
 # breached lists over forcing arbitrary complexity rules (which push
@@ -48,6 +48,32 @@ class ChangePasswordRequest(BaseModel):
                 "This password is too common. Please choose a less predictable one."
             )
         return v
+
+
+class ProfileUpdate(BaseModel):
+    """Fields a hospital may change about itself. Omitted fields are left
+    alone; the email address is deliberately not editable here because it is
+    the verified login identity."""
+    name: str | None = Field(default=None, max_length=200)
+    location: str | None = Field(default=None, max_length=200)
+
+    @field_validator("name", "location")
+    @classmethod
+    def _strip(cls, v: str | None) -> str | None:
+        return v.strip() if v is not None else None
+
+    @field_validator("name")
+    @classmethod
+    def _name_not_blank(cls, v: str | None) -> str | None:
+        if v is not None and not v:
+            raise ValueError("Hospital name cannot be empty.")
+        return v
+
+    @model_validator(mode="after")
+    def _something_to_change(self):
+        if self.name is None and self.location is None:
+            raise ValueError("Provide a name or a location to update.")
+        return self
 
 
 class DeleteAccountRequest(BaseModel):
