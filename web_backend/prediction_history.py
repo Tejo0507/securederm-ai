@@ -5,6 +5,8 @@ diagnoses, which classes, how often the model said "unknown" — without the
 platform ever keeping a patient image or a diagnosis tied to a person.
 """
 
+import csv
+import io
 import logging
 
 from sqlalchemy import case, func
@@ -81,6 +83,29 @@ def summarize_history(db: Session, hospital_id: int) -> dict:
         "by_class": by_class,
         "by_model": by_model,
     }
+
+
+CSV_COLUMNS = ["id", "created_at", "model_id", "predicted_class", "confidence",
+               "uncertainty", "is_unknown"]
+MAX_EXPORT_ROWS = 50_000
+
+
+def _csv_safe(value) -> str:
+    """Neutralise spreadsheet formula injection: a cell starting with = + - @
+    is executed by Excel/Sheets when the file is opened."""
+    text = "" if value is None else str(value)
+    return "'" + text if text[:1] in ("=", "+", "-", "@", "\t", "\r") else text
+
+
+def history_to_csv(rows) -> str:
+    """Render prediction rows (newest first) as CSV text with a header row."""
+    out = io.StringIO()
+    writer = csv.writer(out, lineterminator="\n")
+    writer.writerow(CSV_COLUMNS)
+    for row in rows:
+        record = serialize_prediction(row)
+        writer.writerow([_csv_safe(record[column]) for column in CSV_COLUMNS])
+    return out.getvalue()
 
 
 def record_prediction(db: Session, hospital_id: int, result) -> None:
