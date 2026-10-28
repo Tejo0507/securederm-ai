@@ -54,6 +54,26 @@ class MLModel(Base):
     created_at = Column(DateTime, server_default=func.now())
 
 
+class Prediction(Base):
+    """One diagnosis made through the web app.
+
+    Holds only what is needed to review model usage over time: which hospital
+    ran it, which checkpoint answered, and the headline result. The image, its
+    filename and the per-class probabilities are never stored.
+    """
+    __tablename__ = "predictions"
+    id = Column(Integer, primary_key=True, index=True)
+    hospital_id = Column(
+        Integer, ForeignKey("hospitals.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    model_id = Column(String(32), default="")
+    predicted_class = Column(String(64), nullable=False)
+    confidence = Column(Float, default=0.0)
+    uncertainty = Column(Float, default=0.0)
+    is_unknown = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, server_default=func.now(), index=True)
+
+
 class FederatedRound(Base):
     __tablename__ = "federated_rounds"
     id = Column(Integer, primary_key=True, index=True)
