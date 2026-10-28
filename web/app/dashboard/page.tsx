@@ -14,21 +14,15 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { apiFetch, ApiError } from "@/lib/api";
+import type { BatchPredictionResponse, HospitalInfo, PredictionResult } from "@/lib/types";
+import HistoryTab from "@/components/dashboard/HistoryTab";
+import ModelInfoBanner from "@/components/dashboard/ModelInfoBanner";
+import SettingsTab from "@/components/dashboard/SettingsTab";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
-type Tab = "overview" | "data" | "predict" | "training" | "network";
-
-interface PredictionResult {
-  predicted_class: string;
-  confidence: number;
-  is_unknown: boolean;
-  message: string;
-  class_probabilities: Record<string, number>;
-  top_predictions?: { label: string; probability: number }[];
-  uncertainty?: number;
-}
+type Tab = "overview" | "data" | "predict" | "history" | "training" | "network" | "settings";
 
 interface Metric {
   round: number;
@@ -45,15 +39,10 @@ interface TrainingStatus {
   metrics: Metric[];
 }
 
+const BATCH_MAX_IMAGES = 10; // mirrors MAX_BATCH_IMAGES in the backend
+const BATCH_MAX_BYTES = 24 * 1024 * 1024; // just under the backend's 25 MB request cap
 const UPLOAD_BATCH_MAX_FILES = 100;
 const UPLOAD_BATCH_MAX_BYTES = 20 * 1024 * 1024;
-
-interface HospitalInfo {
-  id: number;
-  name: string;
-  email?: string;
-  location?: string;
-}
 
 /* ================================================================== */
 /*  DASHBOARD                                                          */
@@ -106,9 +95,16 @@ export default function DashboardPage() {
     { key: "overview", label: "Overview" },
     { key: "data", label: "Datasets" },
     { key: "predict", label: "Predict" },
+    { key: "history", label: "History" },
     { key: "training", label: "Training" },
     { key: "network", label: "Network" },
+    { key: "settings", label: "Settings" },
   ];
+
+  function profileUpdated(updated: HospitalInfo) {
+    setHospital(updated);
+    localStorage.setItem("hospital", JSON.stringify(updated));
+  }
 
   return (
     <div className="min-h-screen">
@@ -161,8 +157,12 @@ export default function DashboardPage() {
         {tab === "overview" && <OverviewTab hospital={hospital} setTab={setTab} />}
         {tab === "data" && <DataTab />}
         {tab === "predict" && <PredictTab />}
+        {tab === "history" && <HistoryTab />}
         {tab === "training" && <TrainingTab />}
         {tab === "network" && <NetworkTab />}
+        {tab === "settings" && (
+          <SettingsTab hospital={hospital} onProfileUpdated={profileUpdated} />
+        )}
       </main>
     </div>
   );
@@ -512,6 +512,9 @@ function PredictTab() {
   const [preview, setPreview] = useState<string | null>(null);
   const [predicting, setPredicting] = useState(false);
   const [result, setResult] = useState<PredictionResult | null>(null);
+  const [batch, setBatch] = useState<BatchPredictionResponse | null>(null);
+  // Names are kept client-side only, to label the rows of a batch result.
+  const [batchNames, setBatchNames] = useState<string[]>([]);
   const [error, setError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -525,34 +528,53 @@ function PredictTab() {
   }, []);
 
   function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
+    const files = e.target.files;
     setResult(null);
+    setBatch(null);
     setError("");
     if (preview) URL.revokeObjectURL(preview);
-    setPreview(file ? URL.createObjectURL(file) : null);
+    // A preview only makes sense for a single image.
+    setPreview(files && files.length === 1 ? URL.createObjectURL(files[0]) : null);
   }
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    const file = fileInputRef.current?.files?.[0];
-    if (!file) {
+    const files = Array.from(fileInputRef.current?.files ?? []);
+    if (files.length === 0) {
       setError("Please select a wound image first.");
+      return;
+    }
+    if (files.length > BATCH_MAX_IMAGES) {
+      setError(`Select at most ${BATCH_MAX_IMAGES} images at a time.`);
+      return;
+    }
+    if (files.reduce((sum, f) => sum + f.size, 0) > BATCH_MAX_BYTES) {
+      setError("These images are too large to send together (24 MB limit). Select fewer.");
       return;
     }
 
     setPredicting(true);
     setError("");
     setResult(null);
+    setBatch(null);
 
     const fd = new FormData();
-    fd.append("file", file);
-
     try {
-      const data = await apiFetch<PredictionResult>("/api/predict", {
-        method: "POST",
-        body: fd,
-      });
-      setResult(data);
+      if (files.length === 1) {
+        fd.append("file", files[0]);
+        setResult(
+          await apiFetch<PredictionResult>("/api/predict", { method: "POST", body: fd }),
+        );
+      } else {
+        files.forEach((f) => fd.append("files", f));
+        setBatchNames(files.map((f) => f.name));
+        setBatch(
+          await apiFetch<BatchPredictionResponse>("/api/predict/batch", {
+            method: "POST",
+            body: fd,
+          }),
+        );
+      }
     } catch (err: unknown) {
       setError(
         err instanceof Error
@@ -574,6 +596,7 @@ function PredictTab() {
       animate={{ opacity: 1 }}
       className="space-y-8"
     >
+      <ModelInfoBanner />
       <div className="glass rounded-xl p-6">
         <h3 className="font-semibold mb-4">Diagnose a Wound Image</h3>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -583,6 +606,8 @@ function PredictTab() {
                 ref={fileInputRef}
                 type="file"
                 accept="image/*"
+                multiple
+                aria-label={`Wound images (up to ${BATCH_MAX_IMAGES})`}
                 onChange={handleFileChange}
                 className="w-full text-sm text-zinc-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-emerald-600/20 file:text-emerald-300 hover:file:bg-emerald-600/30 file:cursor-pointer"
               />
@@ -608,8 +633,41 @@ function PredictTab() {
           {error && (
             <p className="text-sm text-rose-400">{error}</p>
           )}
+          <p className="text-xs text-zinc-600">
+            Choose one image for a detailed result, or up to {BATCH_MAX_IMAGES} to classify
+            them together.
+          </p>
         </form>
       </div>
+
+      {batch && (
+        <div className="glass rounded-xl p-6">
+          <h3 className="font-semibold mb-1">Batch results</h3>
+          <p className="text-xs text-zinc-500 mb-4">
+            {batch.count} classified{batch.failed > 0 ? `, ${batch.failed} could not be read` : ""}.
+          </p>
+          <ul className="divide-y divide-white/5 text-sm">
+            {batch.results.map((slot) => (
+              <li key={slot.index} className="py-2 flex justify-between gap-4">
+                <span className="truncate text-zinc-400">
+                  {batchNames[slot.index] ?? `Image ${slot.index + 1}`}
+                </span>
+                {slot.error !== undefined ? (
+                  <span className="text-rose-400 shrink-0">{slot.error}</span>
+                ) : slot.is_unknown ? (
+                  <span className="text-amber-300 shrink-0">
+                    Unrecognized — refer ({(slot.confidence * 100).toFixed(0)}%)
+                  </span>
+                ) : (
+                  <span className="text-emerald-300 shrink-0">
+                    {slot.predicted_class} ({(slot.confidence * 100).toFixed(0)}%)
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {result && (
         <div className="glass rounded-xl p-6 space-y-5">
@@ -624,6 +682,11 @@ function PredictTab() {
               {result.is_unknown ? "Unrecognized pattern" : result.predicted_class}
             </div>
             <div className="text-xs mt-1 opacity-80">{result.message}</div>
+            {result.model_id && (
+              <div className="text-xs mt-2 opacity-60">
+                Model <span className="font-mono">{result.model_id}</span>
+              </div>
+            )}
           </div>
 
           {result.top_predictions && result.top_predictions.length > 0 && (

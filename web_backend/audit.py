@@ -70,8 +70,19 @@ def audit(action: str, hospital_id: int | None = None, **fields) -> None:
         logging.getLogger("web_backend").exception("Could not write audit event")
 
 
-def read_events(hospital_id: int, limit: int = 100) -> list[dict]:
-    """The most recent events for one hospital, newest first."""
+def read_events(
+    hospital_id: int,
+    limit: int = 100,
+    actions: set[str] | None = None,
+    since: datetime | None = None,
+) -> list[dict]:
+    """The most recent events for one hospital, newest first.
+
+    `actions` keeps only events with one of those action names; `since` keeps
+    only events at or after that moment (a naive value is read as UTC).
+    """
+    if since is not None and since.tzinfo is None:
+        since = since.replace(tzinfo=timezone.utc)
     paths = [AUDIT_LOG_PATH] + [
         AUDIT_LOG_PATH.with_name(f"{AUDIT_LOG_PATH.name}.{i}") for i in range(1, _BACKUPS + 1)
     ]
@@ -86,8 +97,18 @@ def read_events(hospital_id: int, limit: int = 100) -> list[dict]:
                 event = json.loads(line)
             except ValueError:
                 continue
-            if event.get("hospital_id") == hospital_id:
-                events.append(event)
-                if len(events) >= limit:
-                    return events
+            if since is not None:
+                try:
+                    when = datetime.fromisoformat(event["ts"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if when < since:
+                    return events   # log is chronological: everything left is older
+            if event.get("hospital_id") != hospital_id:
+                continue
+            if actions is not None and event.get("action") not in actions:
+                continue
+            events.append(event)
+            if len(events) >= limit:
+                return events
     return events

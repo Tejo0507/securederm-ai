@@ -12,7 +12,7 @@
 [![Next.js](https://img.shields.io/badge/Next.js-14-000000?style=for-the-badge&logo=next.js&logoColor=white)](#)
 [![Opacus](https://img.shields.io/badge/Opacus-Differential%20Privacy-6C3EF4?style=for-the-badge&logo=meta&logoColor=white)](#)
 
-[![Tests](https://img.shields.io/badge/tests-31%20passing-brightgreen?style=for-the-badge&logo=pytest&logoColor=white)](#testing)
+[![Tests](https://img.shields.io/badge/tests-290%20passing-brightgreen?style=for-the-badge&logo=pytest&logoColor=white)](#testing)
 [![Security Audit](https://img.shields.io/badge/security-audited-critical?style=for-the-badge&logo=shieldsdotio&logoColor=white)](#security)
 [![CVEs](https://img.shields.io/badge/known%20CVEs-0-success?style=for-the-badge&logo=snyk&logoColor=white)](#security)
 
@@ -80,8 +80,12 @@ No hospital ever sees another hospital's data. Only gradients cross the wire, an
 | **Hardened API layer** | Token-gated node registration, signed session tokens, rate-limited auth endpoints |
 | **Modern web console** | Next.js dashboard for live training rounds, model marketplace, and hospital directory |
 | **Verified email accounts** | Signup requires proving control of the email address before login works |
-| **Live wound prediction** | Upload a photo, get a classification with an honest confidence score |
-| **Real test coverage** | 147 automated tests across the model, aggregator, and web backend |
+| **Live wound prediction** | Upload a photo, or up to ten at once, and get a classification with an honest confidence score |
+| **Prediction history** | Every diagnosis is logged as a result only (never the image) with the model fingerprint that made it; browse, filter, export as CSV, or erase it |
+| **Traceable models** | Each result carries the deployed checkpoint's fingerprint, also shown in the dashboard |
+| **Account controls** | Edit the hospital profile, change the password, or sign out of every device at once |
+| **Operational visibility** | Per-request correlation IDs in responses and logs, and a Prometheus `/metrics` endpoint on the aggregator |
+| **Real test coverage** | 290 automated tests across the model, aggregator, and web backend |
 
 <br/>
 
@@ -158,6 +162,28 @@ pytest -v
 
 <br/>
 
+## Web API
+
+All routes below live under `/api`, need a signed-in session cookie, and (for anything that changes data) the `X-CSRF-Token` header. With `ENV` unset, interactive docs are served at `/docs`.
+
+| Endpoint | What it does |
+|---|---|
+| `POST /predict` | Classify one image |
+| `POST /predict/batch` | Classify up to 10 images; a bad file is reported in its own slot, the rest still run |
+| `GET /model/info` | Fingerprint, size and update time of the deployed model, plus its classes and unknown threshold |
+| `GET /predictions` | Your prediction history, newest first. Filters: `label`, `unknown`, `model_id`; paging: `limit`, `offset` |
+| `GET /predictions/summary` | Totals, unknown rate, average confidence, counts per class and per model |
+| `GET /predictions/export` | The (filtered) history as a CSV download |
+| `DELETE /predictions` | Erase the whole history |
+| `GET /datasets/summary` | Stored image count, disk usage, formats and quota used |
+| `GET /auth/activity` | Your audit trail. Filters: `action` (comma-separated), `since` (ISO-8601) |
+| `PATCH /auth/me` | Change the hospital name and/or location |
+| `POST /auth/logout-all` | End every session on the account |
+
+Inference is limited to `PREDICT_RATE_LIMIT_PER_MINUTE` images per account per minute (default 30, `0` disables); over the limit the API answers `429` with a `Retry-After` header. Every response carries an `X-Request-ID` that also appears in the server log lines for that request.
+
+<br/>
+
 ## Project structure
 
 ```
@@ -213,7 +239,7 @@ This project has been through a full security and data integrity audit. What tha
 
 <div align="center">
 
-[![Pytest](https://img.shields.io/badge/54%20tests-passing-brightgreen?style=for-the-badge&logo=pytest&logoColor=white)](#)
+[![Pytest](https://img.shields.io/badge/290%20tests-passing-brightgreen?style=for-the-badge&logo=pytest&logoColor=white)](#)
 
 </div>
 
@@ -224,6 +250,9 @@ pytest tests/test_model.py -v       # model architecture
 pytest tests/test_server.py -v      # aggregation server
 pytest tests/test_web_backend_auth.py -v   # auth, sessions, and email verification
 pytest tests/test_predict_router.py -v     # wound prediction endpoint
+pytest tests/test_prediction_history.py -v # history, batch prediction, rate limit
+pytest tests/test_account_controls.py -v   # profile, sign-out-everywhere, activity filters
+pytest tests/test_aggregator_metrics.py -v # Prometheus metrics
 ```
 
 <br/>
