@@ -23,6 +23,35 @@ function getCookie(name: string): string | null {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+/**
+ * Download a file the API serves behind the session cookie (e.g. the CSV
+ * export). A plain link would navigate away to the JSON error body on a
+ * 401, so fetch it, check the status, and save the bytes as a Blob.
+ */
+export async function apiDownload(path: string, filename: string): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch(`${API}${path}`, { credentials: "include" });
+  } catch {
+    throw new ApiError(0, "Cannot reach the server. Is the backend running?");
+  }
+  if (!res.ok) {
+    const err = await res.json().catch(() => null);
+    throw new ApiError(
+      res.status,
+      typeof err?.detail === "string" ? err.detail : "Download failed",
+    );
+  }
+  const url = URL.createObjectURL(await res.blob());
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 export async function apiFetch<T = unknown>(
   path: string,
   options: RequestInit = {},
