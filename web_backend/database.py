@@ -74,6 +74,7 @@ def run_migrations() -> None:
         ),
         ("hospitals", "email_verification_token_hash", "VARCHAR(128)", None),
         ("hospitals", "email_verification_expires_at", "DATETIME", None),
+        ("hospitals", "sessions_valid_after", "FLOAT", None),
     ]
 
     with engine.begin() as conn:
