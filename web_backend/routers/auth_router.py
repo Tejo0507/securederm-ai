@@ -319,11 +319,19 @@ async def delete_account(
 @router.get("/activity")
 async def my_activity(
     limit: int = Query(default=50, ge=1, le=200),
+    action: str | None = Query(
+        default=None, max_length=300,
+        description="Comma-separated action names to keep, e.g. login,password_changed",
+    ),
+    since: datetime | None = Query(
+        default=None, description="Only events at or after this ISO-8601 time (UTC if no zone)",
+    ),
     hospital: Hospital = Depends(get_current_hospital),
 ):
     """The account's own recent security-relevant events (logins, uploads,
     erasures, predictions), newest first — never anyone else's."""
-    return read_events(hospital.id, limit)
+    actions = {a.strip() for a in action.split(",") if a.strip()} if action else None
+    return read_events(hospital.id, limit, actions=actions, since=since)
 
 
 @router.get("/me", response_model=HospitalResponse)
