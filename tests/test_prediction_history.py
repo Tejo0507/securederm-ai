@@ -206,7 +206,9 @@ class TestExport:
         assert resp.headers["content-type"].startswith("text/csv")
         assert "attachment" in resp.headers["content-disposition"]
         lines = resp.text.strip().splitlines()
-        assert lines[0] == "id,created_at,model_id,predicted_class,confidence,uncertainty,is_unknown"
+        assert lines[0] == (
+            "id,created_at,model_id,predicted_class,confidence,uncertainty,is_unknown"
+        )
         assert len(lines) == 3
         assert ",Cut,0.4," in lines[1] and lines[1].endswith(",True")
 

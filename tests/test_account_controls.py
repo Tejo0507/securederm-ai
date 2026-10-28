@@ -194,7 +194,9 @@ class TestSessionColumnMigration:
             "email_verification_token_hash VARCHAR(128), "
             "email_verification_expires_at DATETIME)"
         )
-        raw.execute("INSERT INTO hospitals (name, email, password_hash) VALUES ('Old', 'o@x.com', 'h')")
+        raw.execute(
+            "INSERT INTO hospitals (name, email, password_hash) VALUES ('Old', 'o@x.com', 'h')"
+        )
         raw.commit()
         raw.close()
 

@@ -625,7 +625,8 @@ def _render_metrics() -> str:
     last = round_metrics[-1] if round_metrics else None
     gauges = [
         ("securederm_model_version", "Version of the current global model.", model_version),
-        ("securederm_registered_nodes", "Hospital nodes currently enrolled.", len(registered_nodes)),
+        ("securederm_registered_nodes", "Hospital nodes currently enrolled.",
+         len(registered_nodes)),
         ("securederm_pending_updates", "Node updates waiting for the next aggregation.",
          len(pending_updates)),
         ("securederm_rounds_completed", "Aggregation rounds completed since start.",
