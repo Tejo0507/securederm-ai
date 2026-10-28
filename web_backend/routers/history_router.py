@@ -1,13 +1,17 @@
 """Read access to a hospital's own prediction history."""
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
+from web_backend.audit import audit
 from web_backend.auth import get_current_hospital
 from web_backend.database import get_db
 from web_backend.db_models import Hospital
 from web_backend.prediction_history import (
+    MAX_EXPORT_ROWS,
     history_query,
+    history_to_csv,
     serialize_prediction,
     summarize_history,
 )
@@ -26,6 +30,25 @@ async def predictions_summary(
     """Totals, unknown rate, average confidence and per-class / per-model
     counts across this hospital's whole history."""
     return summarize_history(db, hospital.id)
+
+
+@router.get("/predictions/export")
+async def export_predictions(
+    hospital: Hospital = Depends(get_current_hospital),
+    db: Session = Depends(get_db),
+    label: str | None = Query(default=None, max_length=64),
+    unknown: bool | None = None,
+    model_id: str | None = Query(default=None, max_length=32),
+):
+    """Download the (optionally filtered) history as a CSV file, newest first,
+    capped at MAX_EXPORT_ROWS rows."""
+    rows = history_query(db, hospital.id, label, unknown, model_id).limit(MAX_EXPORT_ROWS).all()
+    audit("history_exported", hospital.id, rows=len(rows))
+    return Response(
+        content=history_to_csv(rows),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="prediction-history.csv"'},
+    )
 
 
 @router.get("/predictions")

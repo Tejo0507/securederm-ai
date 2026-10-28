@@ -186,6 +186,43 @@ class TestListing:
             assert other.get("/api/predictions").json() == {"total": 0, "items": []}
 
 
+class TestExport:
+    def test_requires_auth(self, client):
+        assert client.get("/api/predictions/export").status_code == 401
+
+    def test_exports_csv_with_header_and_rows(self, client, monkeypatch):
+        _use_predictor(monkeypatch, _Result("Burns", 0.9), _Result("Cut", 0.4, unknown=True))
+        headers = _sign_in(client, "csv1@example.com")
+        for _ in range(2):
+            _predict(client, headers)
+
+        resp = client.get("/api/predictions/export")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/csv")
+        assert "attachment" in resp.headers["content-disposition"]
+        lines = resp.text.strip().splitlines()
+        assert lines[0] == "id,created_at,model_id,predicted_class,confidence,uncertainty,is_unknown"
+        assert len(lines) == 3
+        assert ",Cut,0.4," in lines[1] and lines[1].endswith(",True")
+
+    def test_export_respects_filters(self, client, monkeypatch):
+        _use_predictor(monkeypatch, _Result("Burns"), _Result("Cut"))
+        headers = _sign_in(client, "csv2@example.com")
+        for _ in range(2):
+            _predict(client, headers)
+        lines = client.get("/api/predictions/export?label=Burns").text.strip().splitlines()
+        assert len(lines) == 2 and ",Burns," in lines[1]
+
+    def test_formula_cells_are_neutralised(self):
+        from web_backend.prediction_history import _csv_safe, history_to_csv
+
+        assert _csv_safe("=HYPERLINK(\"x\")").startswith("'=")
+        assert _csv_safe("@SUM(A1)").startswith("'@")
+        assert _csv_safe("Burns") == "Burns"
+        assert _csv_safe(0.5) == "0.5"
+        assert history_to_csv([]).count("\n") == 1   # header only
+
+
 class TestSummary:
     def test_requires_auth(self, client):
         assert client.get("/api/predictions/summary").status_code == 401
