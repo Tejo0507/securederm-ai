@@ -14,21 +14,13 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { apiFetch, ApiError } from "@/lib/api";
+import type { HospitalInfo, PredictionResult } from "@/lib/types";
+import HistoryTab from "@/components/dashboard/HistoryTab";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
-type Tab = "overview" | "data" | "predict" | "training" | "network";
-
-interface PredictionResult {
-  predicted_class: string;
-  confidence: number;
-  is_unknown: boolean;
-  message: string;
-  class_probabilities: Record<string, number>;
-  top_predictions?: { label: string; probability: number }[];
-  uncertainty?: number;
-}
+type Tab = "overview" | "data" | "predict" | "history" | "training" | "network";
 
 interface Metric {
   round: number;
@@ -47,13 +39,6 @@ interface TrainingStatus {
 
 const UPLOAD_BATCH_MAX_FILES = 100;
 const UPLOAD_BATCH_MAX_BYTES = 20 * 1024 * 1024;
-
-interface HospitalInfo {
-  id: number;
-  name: string;
-  email?: string;
-  location?: string;
-}
 
 /* ================================================================== */
 /*  DASHBOARD                                                          */
@@ -106,6 +91,7 @@ export default function DashboardPage() {
     { key: "overview", label: "Overview" },
     { key: "data", label: "Datasets" },
     { key: "predict", label: "Predict" },
+    { key: "history", label: "History" },
     { key: "training", label: "Training" },
     { key: "network", label: "Network" },
   ];
@@ -161,6 +147,7 @@ export default function DashboardPage() {
         {tab === "overview" && <OverviewTab hospital={hospital} setTab={setTab} />}
         {tab === "data" && <DataTab />}
         {tab === "predict" && <PredictTab />}
+        {tab === "history" && <HistoryTab />}
         {tab === "training" && <TrainingTab />}
         {tab === "network" && <NetworkTab />}
       </main>
