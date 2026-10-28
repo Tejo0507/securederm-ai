@@ -92,6 +92,15 @@ def _serialize_result(result) -> dict:
 MAX_BATCH_IMAGES = 10
 
 
+@router.get("/model/info")
+def model_status(_hospital: Hospital = Depends(get_current_hospital)):
+    """Which checkpoint is serving predictions and how it is configured, so a
+    clinician can match a result to the model version that produced it."""
+    from model.inference import model_info
+
+    return model_info()
+
+
 @router.post("/predict/batch")
 def predict_batch(
     request: Request,
