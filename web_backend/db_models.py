@@ -18,6 +18,10 @@ class Hospital(Base):
     email_verification_token_hash = Column(String(128), nullable=True, index=True)
     email_verification_expires_at = Column(DateTime, nullable=True)
 
+    # Session tokens issued before this unix time are rejected ("sign out
+    # everywhere"). Null means no such cut-off has ever been set.
+    sessions_valid_after = Column(Float, nullable=True)
+
 
 class RevokedToken(Base):
     """Session tokens invalidated before their natural expiry (logout,
