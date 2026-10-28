@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from config.settings import DEV_TOKEN_ECHO
 from web_backend.audit import audit, hash_identifier, read_events
 from web_backend.database import get_db
-from web_backend.db_models import Dataset, Hospital, MLModel
+from web_backend.db_models import Dataset, Hospital, MLModel, Prediction
 from web_backend.email_service import send_verification_email
 from web_backend.routers.hospital_router import wipe_hospital_files
 from web_backend.schemas import (
@@ -284,6 +284,7 @@ async def delete_account(
     hospital_id = hospital.id
     revoke_session_token(db, request.cookies.get(SESSION_COOKIE_NAME))
     db.query(Dataset).filter(Dataset.hospital_id == hospital_id).delete()
+    db.query(Prediction).filter(Prediction.hospital_id == hospital_id).delete()
     db.query(MLModel).filter(MLModel.created_by == hospital_id).update({MLModel.created_by: None})
     db.delete(hospital)
     db.commit()

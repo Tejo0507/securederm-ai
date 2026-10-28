@@ -228,6 +228,56 @@ class TestExport:
         assert history_to_csv([]).count("\n") == 1   # header only
 
 
+class TestErasure:
+    def test_requires_auth_and_csrf(self, client):
+        assert client.delete("/api/predictions").status_code == 401
+        _sign_in(client, "erase0@example.com")
+        assert client.delete("/api/predictions").status_code == 403
+
+    def test_erases_only_own_history(self, client, monkeypatch):
+        _use_predictor(monkeypatch)
+        headers = _sign_in(client, "erase1@example.com")
+        for _ in range(3):
+            _predict(client, headers)
+
+        with TestClient(app, base_url="https://testserver") as other:
+            other_headers = _sign_in(other, "history-erase-other@example.com")
+            _predict(other, other_headers)
+
+            resp = client.delete("/api/predictions", headers=headers)
+            assert resp.status_code == 200
+            assert resp.json() == {"deleted_predictions": 3}
+            assert client.get("/api/predictions").json()["total"] == 0
+            assert other.get("/api/predictions").json()["total"] == 1
+
+    def test_erasure_is_audited(self, client, monkeypatch):
+        from web_backend.audit import read_events
+
+        _use_predictor(monkeypatch)
+        headers = _sign_in(client, "erase3@example.com")
+        _predict(client, headers)
+        hospital_id = client.get("/api/auth/me").json()["id"]
+        client.delete("/api/predictions", headers=headers)
+        assert read_events(hospital_id)[0]["action"] == "history_erased"
+
+    def test_deleting_the_account_removes_history(self, client, monkeypatch):
+        _use_predictor(monkeypatch)
+        headers = _sign_in(client, "erase4@example.com")
+        _predict(client, headers)
+        assert len(_rows("erase4@example.com")) == 1
+        hospital_id = client.get("/api/auth/me").json()["id"]
+
+        resp = client.request(
+            "DELETE", "/api/auth/account", headers=headers, json={"password": TEST_PASSWORD}
+        )
+        assert resp.status_code == 200
+        db = SessionLocal()
+        try:
+            assert db.query(Prediction).filter(Prediction.hospital_id == hospital_id).count() == 0
+        finally:
+            db.close()
+
+
 class TestSummary:
     def test_requires_auth(self, client):
         assert client.get("/api/predictions/summary").status_code == 401
