@@ -228,6 +228,38 @@ class TestExport:
         assert history_to_csv([]).count("\n") == 1   # header only
 
 
+class TestPredictRateLimit:
+    def test_limit_is_per_account_and_reports_retry_after(self, client, monkeypatch):
+        _use_predictor(monkeypatch)
+        monkeypatch.setattr("web_backend.routers.predict_router.PREDICT_RATE_LIMIT_PER_MINUTE", 2)
+        headers = _sign_in(client, "rate1@example.com")
+
+        assert _predict(client, headers).status_code == 200
+        assert _predict(client, headers).status_code == 200
+        blocked = _predict(client, headers)
+        assert blocked.status_code == 429
+        assert int(blocked.headers["retry-after"]) >= 1
+
+        # A different account is unaffected by the first one's usage.
+        with TestClient(app, base_url="https://testserver") as other:
+            other_headers = _sign_in(other, "rate2@example.com")
+            assert _predict(other, other_headers).status_code == 200
+
+    def test_rejected_requests_are_not_recorded(self, client, monkeypatch):
+        _use_predictor(monkeypatch)
+        monkeypatch.setattr("web_backend.routers.predict_router.PREDICT_RATE_LIMIT_PER_MINUTE", 1)
+        headers = _sign_in(client, "rate3@example.com")
+        _predict(client, headers)
+        _predict(client, headers)
+        assert len(_rows("rate3@example.com")) == 1
+
+    def test_zero_disables_the_limit(self, client, monkeypatch):
+        _use_predictor(monkeypatch)
+        monkeypatch.setattr("web_backend.routers.predict_router.PREDICT_RATE_LIMIT_PER_MINUTE", 0)
+        headers = _sign_in(client, "rate4@example.com")
+        assert all(_predict(client, headers).status_code == 200 for _ in range(5))
+
+
 class TestErasure:
     def test_requires_auth_and_csrf(self, client):
         assert client.delete("/api/predictions").status_code == 401
