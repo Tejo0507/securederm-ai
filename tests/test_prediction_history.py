@@ -130,3 +130,57 @@ class TestRecording:
     def test_no_image_data_in_the_table(self):
         columns = {c.name for c in Prediction.__table__.columns}
         assert columns.isdisjoint({"image", "filename", "content", "probabilities"})
+
+
+class TestListing:
+    def test_requires_auth(self, client):
+        assert client.get("/api/predictions").status_code == 401
+
+    def test_lists_newest_first_with_total(self, client, monkeypatch):
+        _use_predictor(monkeypatch, _Result("Burns"), _Result("Cut"), _Result("Normal"))
+        headers = _sign_in(client, "list1@example.com")
+        for _ in range(3):
+            _predict(client, headers)
+
+        body = client.get("/api/predictions").json()
+        assert body["total"] == 3
+        assert [i["predicted_class"] for i in body["items"]] == ["Normal", "Cut", "Burns"]
+        assert set(body["items"][0]) == {
+            "id", "created_at", "model_id", "predicted_class",
+            "confidence", "uncertainty", "is_unknown",
+        }
+
+    def test_paginates(self, client, monkeypatch):
+        _use_predictor(monkeypatch)
+        headers = _sign_in(client, "list2@example.com")
+        for _ in range(5):
+            _predict(client, headers)
+
+        page = client.get("/api/predictions?limit=2&offset=4").json()
+        assert page["total"] == 5
+        assert len(page["items"]) == 1
+        assert client.get("/api/predictions?limit=0").status_code == 422
+        assert client.get("/api/predictions?limit=101").status_code == 422
+
+    def test_filters_by_label_and_unknown(self, client, monkeypatch):
+        _use_predictor(
+            monkeypatch,
+            _Result("Burns"), _Result("Cut", 0.3, unknown=True), _Result("Burns"),
+        )
+        headers = _sign_in(client, "list3@example.com")
+        for _ in range(3):
+            _predict(client, headers)
+
+        assert client.get("/api/predictions?label=Burns").json()["total"] == 2
+        unknown = client.get("/api/predictions?unknown=true").json()
+        assert unknown["total"] == 1 and unknown["items"][0]["predicted_class"] == "Cut"
+        assert client.get("/api/predictions?unknown=false").json()["total"] == 2
+
+    def test_only_own_predictions_are_visible(self, client, monkeypatch):
+        _use_predictor(monkeypatch)
+        headers = _sign_in(client, "list4a@example.com")
+        _predict(client, headers)
+
+        with TestClient(app, base_url="https://testserver") as other:
+            _sign_in(other, "list4b@example.com")
+            assert other.get("/api/predictions").json() == {"total": 0, "items": []}

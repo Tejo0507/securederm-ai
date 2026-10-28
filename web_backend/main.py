@@ -26,7 +26,13 @@ from fastapi.responses import JSONResponse
 
 from web_backend.database import engine, Base, SessionLocal, run_migrations
 from web_backend.db_models import MLModel
-from web_backend.routers import auth_router, hospital_router, training_router, predict_router
+from web_backend.routers import (
+    auth_router,
+    history_router,
+    hospital_router,
+    predict_router,
+    training_router,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("web_backend")
@@ -160,6 +166,7 @@ app.include_router(auth_router.router, prefix="/api/auth", tags=["auth"])
 app.include_router(hospital_router.router, prefix="/api", tags=["hospital"])
 app.include_router(training_router.router, prefix="/api", tags=["training"])
 app.include_router(predict_router.router, prefix="/api", tags=["predict"])
+app.include_router(history_router.router, prefix="/api", tags=["history"])
 
 
 @app.exception_handler(RequestValidationError)
