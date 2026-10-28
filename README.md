@@ -13,6 +13,7 @@
 [![Opacus](https://img.shields.io/badge/Opacus-Differential%20Privacy-6C3EF4?style=for-the-badge&logo=meta&logoColor=white)](#)
 
 [![CI](https://img.shields.io/github/actions/workflow/status/Tejo0507/securederm-ai/ci.yml?branch=main&style=for-the-badge&logo=githubactions&logoColor=white&label=CI)](https://github.com/Tejo0507/securederm-ai/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue?style=for-the-badge)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-290%20passing-brightgreen?style=for-the-badge&logo=pytest&logoColor=white)](#testing)
 [![Security Audit](https://img.shields.io/badge/security-audited-critical?style=for-the-badge&logo=shieldsdotio&logoColor=white)](#security)
 [![CVEs](https://img.shields.io/badge/known%20CVEs-0-success?style=for-the-badge&logo=snyk&logoColor=white)](#security)
@@ -28,6 +29,14 @@ SecureDerm AI is a federated learning platform that lets multiple hospitals coll
 The model itself is a ResNet18 backbone fine-tuned to classify ten wound types (abrasions, burns, diabetic wounds, pressure wounds, surgical wounds, and more), with a built-in "unknown, refer to a doctor" fallback for anything it does not recognize confidently.
 
 > **Research software, not a medical device.** SecureDerm AI is a research and engineering project. It has not been clinically validated or cleared by any regulator, and its output must never replace the judgement of a qualified clinician.
+
+<div align="center">
+
+<img src="docs/assets/demo.gif" alt="SecureDerm AI dashboard: overview, wound prediction with a model fingerprint, private prediction history, and account settings" width="860" />
+
+<sub>The dashboard end to end. The demo uploads a synthetic image, so the model correctly says "unrecognized pattern, refer to a doctor" instead of guessing.</sub>
+
+</div>
 
 <br/>
 
@@ -263,6 +272,10 @@ pytest tests/test_aggregator_metrics.py -v # Prometheus metrics
 ## Contributing
 
 Contributions are welcome, from bug reports and tests to new features. Start with [CONTRIBUTING.md](CONTRIBUTING.md) for setup, the checks CI runs, and the project's privacy rules. Found a vulnerability? Please report it privately via [SECURITY.md](SECURITY.md).
+
+## License
+
+Released under the [Apache License 2.0](LICENSE). You are free to use, modify and distribute it, including commercially, with the patent grant and notice requirements the license describes.
 
 If SecureDerm AI is useful or interesting to you, a star helps other people working on privacy-preserving medical AI find it.
 

@@ -1,51 +1,51 @@
 # SecureDerm AI — Development Roadmap
 
-> Status legend: `[ ]` not started · `[~]` in progress · `[x]` done
+> Status legend: `[ ]` not started · `[~]` partly done · `[x]` done and covered by the code or tests
 
 ---
 
 ## Phase A — Core ML
 
-- [ ] Build wound classification model (ResNet18, 4-class output)
-- [ ] Create PyTorch Dataset class for wound images (JPEG/PNG, 224x224)
-- [ ] Implement training pipeline with CrossEntropyLoss + Adam optimizer
-- [ ] Add evaluation metrics (accuracy, precision, recall, F1, confusion matrix)
-- [ ] Add per-class accuracy reporting for infection severity levels
-- [ ] Validate model on held-out test split before federated integration
+- [x] Build wound classification model (ResNet18, 10-class output)
+- [x] Create PyTorch Dataset class for wound images (JPEG/PNG, 224x224)
+- [x] Implement training pipeline with CrossEntropyLoss + Adam optimizer
+- [x] Add evaluation metrics (accuracy, precision, recall, F1, confusion matrix)
+- [x] Add per-class reporting (`python -m scripts.evaluate_global_model`)
+- [x] Validate model on a held-out split before federated integration
 
 ---
 
 ## Phase B — Federated Learning
 
-- [ ] Implement hospital client training node (local train → weight extraction)
-- [ ] Build gradient serialization (state_dict → bytes → base64)
-- [ ] Set up secure HTTPS transmission channel for gradient uploads
-- [ ] Implement Federated Averaging (FedAvg) on aggregator side
-- [ ] Add weighted averaging based on dataset size per node
-- [ ] Build model versioning system (increment on each aggregation round)
-- [ ] Test 2-node simulation end-to-end
+- [x] Implement hospital client training node (local train → weight extraction)
+- [x] Build gradient serialization (state_dict → bytes → base64, with SHA-256 integrity check)
+- [ ] Terminate HTTPS in the app itself (today: put a TLS reverse proxy in front)
+- [x] Implement Federated Averaging (FedAvg) on aggregator side
+- [x] Add weighted averaging based on dataset size per node
+- [x] Build model versioning system (increment on each aggregation round)
+- [x] Test 2-node simulation end-to-end
 
 ---
 
 ## Phase C — Privacy Layer
 
-- [ ] Integrate Opacus PrivacyEngine into local training loop
-- [ ] Configure gradient clipping (max_grad_norm)
-- [ ] Configure Gaussian noise injection (epsilon=3, delta=1e-5)
-- [ ] Validate privacy budget tracking across rounds
-- [ ] Add assertion: raw images never leave node (network payload check)
+- [x] Integrate Opacus PrivacyEngine into local training loop
+- [x] Configure gradient clipping (max_grad_norm)
+- [x] Configure Gaussian noise injection (epsilon=3, delta=1e-5), optionally cryptographically secure
+- [x] Validate privacy budget tracking across rounds (per-node ledger, lifetime epsilon cap)
+- [~] Assert raw images never leave a node (uploads carry weights only; no dedicated payload-inspection test yet)
 
 ---
 
 ## Phase D — Aggregator Server
 
-- [ ] Build `POST /node/register` — node registration + token issuance
-- [ ] Build `POST /training/update` — receive encrypted gradients
-- [ ] Build `GET /model/latest` — serve latest global model weights
-- [ ] Implement node management (track registered hospitals + dataset sizes)
-- [ ] Add JWT-based authentication for API endpoints
-- [ ] Add Prometheus metrics endpoint for monitoring
-- [ ] Add model checkpoint saving after each aggregation round
+- [x] Build `POST /node/register` — node registration + token issuance
+- [x] Build `POST /training/update` — receive model updates
+- [x] Build `GET /model/latest` — serve latest global model weights
+- [x] Implement node management (track registered hospitals + dataset sizes)
+- [~] Token authentication for API endpoints (opaque per-node tokens plus an admin token; not JWT)
+- [x] Add Prometheus metrics endpoint for monitoring (`GET /metrics`)
+- [x] Add model checkpoint saving after each aggregation round
 
 ---
 
@@ -53,30 +53,30 @@
 
 - [ ] Export trained PyTorch model to ONNX format
 - [ ] Convert ONNX → TensorFlow Lite (.tflite)
-- [ ] Build offline inference pipeline (load image → preprocess → predict)
-- [ ] Target output: `{ "severity": "Moderate Infection", "confidence": 0.83 }`
+- [~] Build offline inference pipeline (`scripts/predict_demo.py` and `model/inference.py` run locally; no mobile build)
+- [x] Target output: predicted class, confidence, "unknown" flag, top-k and model fingerprint
 - [ ] Validate inference on Android 9+ device
 
 ---
 
 ## Phase F — Infrastructure & DevOps
 
-- [ ] Dockerize hospital node (Dockerfile + docker-compose)
-- [ ] Dockerize aggregation server
-- [ ] Set up Prometheus + Grafana monitoring stack
-- [ ] Add CI pipeline (lint, test, type-check)
+- [x] Dockerize hospital node (Dockerfile + docker-compose)
+- [x] Dockerize aggregation server
+- [ ] Set up Prometheus + Grafana monitoring stack (the `/metrics` endpoint is ready to scrape)
+- [x] Add CI pipeline (flake8, pytest, type-check, lint)
 - [ ] Write deployment playbook for AWS EC2 / GCP Compute Engine
 
 ---
 
 ## Phase G — Testing
 
-- [ ] Unit tests for dataset_loader
-- [ ] Unit tests for training engine
-- [ ] Unit tests for aggregation algorithm (FedAvg)
-- [ ] Unit tests for privacy layer
-- [ ] Integration test: multi-node federated round
-- [ ] Security test: verify no raw data in network payloads
+- [x] Unit tests for dataset_loader
+- [x] Unit tests for training engine
+- [x] Unit tests for aggregation algorithm (FedAvg)
+- [x] Unit tests for privacy layer
+- [x] Integration test: multi-node federated round
+- [~] Security tests: authentication, CSRF, upload sanitisation, log hygiene (a payload-level "no raw data" test is still open)
 
 ---
 
