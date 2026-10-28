@@ -6,12 +6,26 @@ from sqlalchemy.orm import Session
 from web_backend.auth import get_current_hospital
 from web_backend.database import get_db
 from web_backend.db_models import Hospital
-from web_backend.prediction_history import history_query, serialize_prediction
+from web_backend.prediction_history import (
+    history_query,
+    serialize_prediction,
+    summarize_history,
+)
 
 DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 100
 
 router = APIRouter()
+
+
+@router.get("/predictions/summary")
+async def predictions_summary(
+    hospital: Hospital = Depends(get_current_hospital),
+    db: Session = Depends(get_db),
+):
+    """Totals, unknown rate, average confidence and per-class / per-model
+    counts across this hospital's whole history."""
+    return summarize_history(db, hospital.id)
 
 
 @router.get("/predictions")
