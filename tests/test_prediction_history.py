@@ -255,6 +255,76 @@ class TestPredictRateLimit:
         assert all(_predict(client, headers).status_code == 200 for _ in range(5))
 
 
+class TestBatchPredict:
+    def _batch(self, client, headers, parts):
+        return client.post("/api/predict/batch", headers=headers, files=parts)
+
+    def test_requires_auth_and_csrf(self, client):
+        parts = [("files", ("a.png", _png(), "image/png"))]
+        assert client.post("/api/predict/batch", files=parts).status_code == 401
+        _sign_in(client, "batch0@example.com")
+        assert client.post("/api/predict/batch", files=parts).status_code == 403
+
+    def test_classifies_every_image_in_order_and_records_history(self, client, monkeypatch):
+        _use_predictor(monkeypatch, _Result("Burns"), _Result("Cut"), _Result("Normal"))
+        headers = _sign_in(client, "batch1@example.com")
+        parts = [("files", (f"{i}.png", _png(), "image/png")) for i in range(3)]
+
+        resp = self._batch(client, headers, parts)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["count"] == 3 and body["failed"] == 0
+        assert [r["predicted_class"] for r in body["results"]] == ["Burns", "Cut", "Normal"]
+        assert [r["index"] for r in body["results"]] == [0, 1, 2]
+        assert len(_rows("batch1@example.com")) == 3
+
+    def test_a_bad_file_is_reported_without_failing_the_rest(self, client, monkeypatch):
+        _use_predictor(monkeypatch, _Result("Burns"), _Result("Cut"))
+        headers = _sign_in(client, "batch2@example.com")
+        parts = [
+            ("files", ("a.png", _png(), "image/png")),
+            ("files", ("bad.png", b"definitely not an image", "image/png")),
+            ("files", ("c.png", _png(), "image/png")),
+        ]
+        body = self._batch(client, headers, parts).json()
+        assert body["count"] == 2 and body["failed"] == 1
+        assert body["results"][1] == {"index": 1, "error": "File is not a valid image."}
+        assert [body["results"][0]["predicted_class"], body["results"][2]["predicted_class"]] == [
+            "Burns", "Cut",
+        ]
+        assert len(_rows("batch2@example.com")) == 2
+
+    def test_all_invalid_is_a_400(self, client, monkeypatch):
+        _use_predictor(monkeypatch)
+        headers = _sign_in(client, "batch3@example.com")
+        parts = [("files", ("bad.png", b"nope", "image/png"))]
+        assert self._batch(client, headers, parts).status_code == 400
+
+    def test_too_many_images_is_rejected(self, client, monkeypatch):
+        _use_predictor(monkeypatch)
+        headers = _sign_in(client, "batch4@example.com")
+        parts = [("files", (f"{i}.png", _png(), "image/png")) for i in range(11)]
+        assert self._batch(client, headers, parts).status_code == 413
+
+    def test_each_image_counts_against_the_rate_limit(self, client, monkeypatch):
+        _use_predictor(monkeypatch)
+        monkeypatch.setattr("web_backend.routers.predict_router.PREDICT_RATE_LIMIT_PER_MINUTE", 3)
+        headers = _sign_in(client, "batch5@example.com")
+        parts = [("files", (f"{i}.png", _png(), "image/png")) for i in range(2)]
+        assert self._batch(client, headers, parts).status_code == 200
+        assert self._batch(client, headers, parts).status_code == 429   # 2 + 2 > 3
+        assert _predict(client, headers).status_code == 200            # a single image still fits
+
+    def test_no_model_is_a_503(self, client, monkeypatch):
+        def _missing():
+            raise FileNotFoundError("no checkpoint")
+
+        monkeypatch.setattr("model.inference.get_predictor", _missing)
+        headers = _sign_in(client, "batch6@example.com")
+        parts = [("files", ("a.png", _png(), "image/png"))]
+        assert self._batch(client, headers, parts).status_code == 503
+
+
 class TestErasure:
     def test_requires_auth_and_csrf(self, client):
         assert client.delete("/api/predictions").status_code == 401
