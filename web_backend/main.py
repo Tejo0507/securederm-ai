@@ -26,6 +26,13 @@ from fastapi.responses import JSONResponse
 
 from web_backend.database import engine, Base, SessionLocal, run_migrations
 from web_backend.db_models import MLModel
+from web_backend.request_id import (
+    HEADER_NAME as REQUEST_ID_HEADER,
+    RequestIdFilter,
+    current_request_id,
+    resolve_request_id,
+    set_request_id,
+)
 from web_backend.routers import (
     auth_router,
     history_router,
@@ -34,7 +41,14 @@ from web_backend.routers import (
     training_router,
 )
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] [%(request_id)s] %(name)s: %(message)s",
+)
+# basicConfig's format needs every record to carry request_id, so the filter
+# goes on the handlers (a logger-level filter would skip child loggers).
+for _handler in logging.getLogger().handlers:
+    _handler.addFilter(RequestIdFilter())
 logger = logging.getLogger("web_backend")
 
 IS_PRODUCTION = os.getenv("ENV", "development").lower() == "production"
@@ -138,6 +152,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=[REQUEST_ID_HEADER],
 )
 
 
@@ -159,6 +174,19 @@ async def _security_headers_and_body_limit(request: Request, call_next):
     response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
     if IS_PRODUCTION:
         response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
+    return response
+
+
+@app.middleware("http")
+async def _request_id(request: Request, call_next):
+    # Added after the middleware above, so it is the outer layer: even a
+    # request that body-limit rejects gets an ID in the response and the logs.
+    request_id = resolve_request_id(request.headers.get(REQUEST_ID_HEADER))
+    # Not reset afterwards: every request runs in its own task context, and
+    # the 500 handler (which runs after this frame unwinds) still needs it.
+    set_request_id(request_id)
+    response = await call_next(request)
+    response.headers[REQUEST_ID_HEADER] = request_id
     return response
 
 
@@ -192,7 +220,12 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     it can leak file paths, query text, or other internals. Log the real
     thing server-side and return a generic message instead."""
     logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
-    return JSONResponse(status_code=500, content={"detail": "Internal server error."})
+    # This handler runs outside the middleware stack, so tag the response here.
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error."},
+        headers={REQUEST_ID_HEADER: current_request_id()},
+    )
 
 
 @app.get("/api/health")
