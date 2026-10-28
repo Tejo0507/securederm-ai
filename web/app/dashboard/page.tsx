@@ -17,11 +17,12 @@ import { apiFetch, ApiError } from "@/lib/api";
 import type { BatchPredictionResponse, HospitalInfo, PredictionResult } from "@/lib/types";
 import HistoryTab from "@/components/dashboard/HistoryTab";
 import ModelInfoBanner from "@/components/dashboard/ModelInfoBanner";
+import SettingsTab from "@/components/dashboard/SettingsTab";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
-type Tab = "overview" | "data" | "predict" | "history" | "training" | "network";
+type Tab = "overview" | "data" | "predict" | "history" | "training" | "network" | "settings";
 
 interface Metric {
   round: number;
@@ -97,7 +98,13 @@ export default function DashboardPage() {
     { key: "history", label: "History" },
     { key: "training", label: "Training" },
     { key: "network", label: "Network" },
+    { key: "settings", label: "Settings" },
   ];
+
+  function profileUpdated(updated: HospitalInfo) {
+    setHospital(updated);
+    localStorage.setItem("hospital", JSON.stringify(updated));
+  }
 
   return (
     <div className="min-h-screen">
@@ -153,6 +160,9 @@ export default function DashboardPage() {
         {tab === "history" && <HistoryTab />}
         {tab === "training" && <TrainingTab />}
         {tab === "network" && <NetworkTab />}
+        {tab === "settings" && (
+          <SettingsTab hospital={hospital} onProfileUpdated={profileUpdated} />
+        )}
       </main>
     </div>
   );
