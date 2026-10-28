@@ -233,7 +233,8 @@ def create_token(payload: dict) -> str:
         .rstrip("=")
     )
     # jti uniquely names this token so it can be revoked individually.
-    data = {**payload, "exp": time.time() + TOKEN_EXPIRY, "jti": secrets.token_urlsafe(16)}
+    now = time.time()
+    data = {**payload, "iat": now, "exp": now + TOKEN_EXPIRY, "jti": secrets.token_urlsafe(16)}
     body = (
         base64.urlsafe_b64encode(json.dumps(data).encode()).decode().rstrip("=")
     )
@@ -291,4 +292,10 @@ async def get_current_hospital(
     )
     if hospital is None:
         raise HTTPException(status_code=401, detail="Hospital not found")
+    # "Sign out everywhere" sets a cut-off; a token issued before it (or one
+    # with no issue time at all) no longer counts.
+    if hospital.sessions_valid_after is not None and (
+        payload.get("iat", 0) < hospital.sessions_valid_after
+    ):
+        raise HTTPException(status_code=401, detail="Session has been signed out")
     return hospital

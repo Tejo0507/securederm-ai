@@ -239,6 +239,27 @@ async def logout(response: Response, request: Request, db: Session = Depends(get
     return {"status": "logged_out"}
 
 
+@router.post("/logout-all")
+async def logout_all(
+    request: Request,
+    response: Response,
+    hospital: Hospital = Depends(get_current_hospital),
+    db: Session = Depends(get_db),
+):
+    """End every session on the account, on every device, including this one.
+
+    For a lost laptop or a shared computer someone forgot to sign out of:
+    tokens issued up to now are rejected from here on, and signing in again
+    works normally.
+    """
+    verify_csrf(request)
+    hospital.sessions_valid_after = time.time()
+    db.commit()
+    audit("sessions_revoked", hospital.id)
+    clear_session_cookies(response)
+    return {"status": "all_sessions_ended"}
+
+
 @router.post("/change-password")
 async def change_password(
     payload: ChangePasswordRequest,
