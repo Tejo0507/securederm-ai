@@ -28,7 +28,7 @@ import torch
 import uvicorn
 from fastapi import FastAPI, HTTPException, Header, Request
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, field_validator
 
 from aggregator.fedavg import federated_average
@@ -618,6 +618,47 @@ async def get_round_metrics(x_node_token: str | None = Header(None, alias="X-Nod
         "total_rounds": FEDERATED_ROUNDS,
         "metrics": round_metrics,
     }
+
+
+def _render_metrics() -> str:
+    """Prometheus text exposition (v0.0.4) of the aggregator's live state."""
+    last = round_metrics[-1] if round_metrics else None
+    gauges = [
+        ("securederm_model_version", "Version of the current global model.", model_version),
+        ("securederm_registered_nodes", "Hospital nodes currently enrolled.", len(registered_nodes)),
+        ("securederm_pending_updates", "Node updates waiting for the next aggregation.",
+         len(pending_updates)),
+        ("securederm_rounds_completed", "Aggregation rounds completed since start.",
+         len(round_metrics)),
+        ("securederm_last_round_nodes", "Nodes that took part in the latest round.",
+         last["num_nodes"] if last else 0),
+    ]
+    if last is not None:
+        gauges.append(
+            ("securederm_last_round_avg_loss", "Mean training loss reported for the latest round.",
+             last["avg_loss"])
+        )
+    lines: list[str] = []
+    for name, help_text, value in gauges:
+        lines += [f"# HELP {name} {help_text}", f"# TYPE {name} gauge", f"{name} {value}"]
+    return "\n".join(lines) + "\n"
+
+
+@app.get("/metrics")
+async def prometheus_metrics(
+    x_node_token: str | None = Header(None, alias="X-Node-Token"),
+    authorization: str | None = Header(None),
+):
+    """Operational gauges for Prometheus. Enrolment and round figures are
+    network information, so a node or admin token is required: send it as
+    X-Node-Token, or as `Authorization: Bearer <token>`, which is what a
+    Prometheus scrape config's `authorization` block produces."""
+    token = x_node_token
+    if token is None and authorization and authorization.lower().startswith("bearer "):
+        token = authorization[7:].strip()
+    if not _is_authorized(token):
+        raise HTTPException(status_code=403, detail="Invalid node token.")
+    return PlainTextResponse(_render_metrics(), media_type="text/plain; version=0.0.4")
 
 
 # ── Main ─────────────────────────────────────────────────────────────────
