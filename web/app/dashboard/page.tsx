@@ -16,6 +16,7 @@ import {
 import { apiFetch, ApiError } from "@/lib/api";
 import type { BatchPredictionResponse, HospitalInfo, PredictionResult } from "@/lib/types";
 import HistoryTab from "@/components/dashboard/HistoryTab";
+import ModelInfoBanner from "@/components/dashboard/ModelInfoBanner";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -585,6 +586,7 @@ function PredictTab() {
       animate={{ opacity: 1 }}
       className="space-y-8"
     >
+      <ModelInfoBanner />
       <div className="glass rounded-xl p-6">
         <h3 className="font-semibold mb-4">Diagnose a Wound Image</h3>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -670,6 +672,11 @@ function PredictTab() {
               {result.is_unknown ? "Unrecognized pattern" : result.predicted_class}
             </div>
             <div className="text-xs mt-1 opacity-80">{result.message}</div>
+            {result.model_id && (
+              <div className="text-xs mt-2 opacity-60">
+                Model <span className="font-mono">{result.model_id}</span>
+              </div>
+            )}
           </div>
 
           {result.top_predictions && result.top_predictions.length > 0 && (
