@@ -169,8 +169,23 @@ registered, pass that node's token via `HOSPITAL_A_TOKEN` / `HOSPITAL_B_TOKEN`.
 | `/model/latest`       | GET    | Download latest global model (node or admin token) |
 | `/round/metrics`      | GET    | Per-round metrics (node or admin token) |
 | `/status`             | GET    | Server health check            |
+| `/metrics`            | GET    | Prometheus gauges (node or admin token) |
 
 Notes:
+
+- `/metrics` exposes the model version, enrolled nodes, pending updates,
+  completed rounds and the latest round's node count and average loss. It needs
+  a token, sent as `X-Node-Token` or `Authorization: Bearer <token>`. A scrape
+  job for Prometheus:
+
+  ```yaml
+  scrape_configs:
+    - job_name: securederm-aggregator
+      static_configs:
+        - targets: ["127.0.0.1:8000"]
+      authorization:
+        credentials: "<AGGREGATOR_ADMIN_TOKEN>"
+  ```
 
 - The aggregator binds to `AGGREGATOR_HOST` (default `127.0.0.1`). Set it to
   `0.0.0.0` only when nodes connect from other machines.
@@ -186,5 +201,7 @@ Notes:
   spent across rounds.
 - Prediction tuning: `INFERENCE_TEMPERATURE` (see the suggestion printed by
   `python -m scripts.evaluate_global_model`) and `INFERENCE_TTA=true`.
+- The web backend limits each account to `PREDICT_RATE_LIMIT_PER_MINUTE`
+  images per minute (default 30, 0 = off) because inference is CPU heavy.
 - A restarted node whose `hospital_id` is still registered must set the
   `NODE_TOKEN` environment variable to its current token to re-register.
