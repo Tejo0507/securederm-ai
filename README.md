@@ -30,6 +30,14 @@ The model itself is a ResNet18 backbone fine-tuned to classify ten wound types (
 
 > **Research software, not a medical device.** SecureDerm AI is a research and engineering project. It has not been clinically validated or cleared by any regulator, and its output must never replace the judgement of a qualified clinician.
 
+<div align="center">
+
+<img src="docs/assets/demo.gif" alt="SecureDerm AI dashboard: overview, wound prediction with a model fingerprint, private prediction history, and account settings" width="860" />
+
+<sub>The dashboard end to end. The demo uploads a synthetic image, so the model correctly says "unrecognized pattern, refer to a doctor" instead of guessing.</sub>
+
+</div>
+
 <br/>
 
 <div align="center">
