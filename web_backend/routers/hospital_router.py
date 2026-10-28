@@ -158,7 +158,9 @@ async def dataset_summary(hospital: Hospital = Depends(get_current_hospital)):
             newest = info.st_mtime if newest is None else max(newest, info.st_mtime)
 
     def _iso(ts):
-        return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat(timespec="seconds") if ts else None
+        if not ts:
+            return None
+        return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat(timespec="seconds")
 
     return {
         "images": count,

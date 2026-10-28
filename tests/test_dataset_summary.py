@@ -69,7 +69,8 @@ def test_counts_sizes_and_formats(client):
     assert body["formats"] == {"png": 2, "jpg": 1}
     assert body["total_bytes"] > 0
     assert body["oldest_upload"] <= body["newest_upload"]
-    assert body["quota_used"] == pytest.approx(3 / hospital_router.MAX_IMAGES_PER_HOSPITAL, abs=1e-4)
+    quota = hospital_router.MAX_IMAGES_PER_HOSPITAL
+    assert body["quota_used"] == pytest.approx(3 / quota, abs=1e-4)
 
 
 def test_duplicate_uploads_are_counted_once(client):
