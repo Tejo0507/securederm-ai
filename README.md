@@ -12,6 +12,7 @@
 [![Next.js](https://img.shields.io/badge/Next.js-14-000000?style=for-the-badge&logo=next.js&logoColor=white)](#)
 [![Opacus](https://img.shields.io/badge/Opacus-Differential%20Privacy-6C3EF4?style=for-the-badge&logo=meta&logoColor=white)](#)
 
+[![CI](https://img.shields.io/github/actions/workflow/status/Tejo0507/securederm-ai/ci.yml?branch=main&style=for-the-badge&logo=githubactions&logoColor=white&label=CI)](https://github.com/Tejo0507/securederm-ai/actions/workflows/ci.yml)
 [![Tests](https://img.shields.io/badge/tests-290%20passing-brightgreen?style=for-the-badge&logo=pytest&logoColor=white)](#testing)
 [![Security Audit](https://img.shields.io/badge/security-audited-critical?style=for-the-badge&logo=shieldsdotio&logoColor=white)](#security)
 [![CVEs](https://img.shields.io/badge/known%20CVEs-0-success?style=for-the-badge&logo=snyk&logoColor=white)](#security)
@@ -25,6 +26,8 @@
 SecureDerm AI is a federated learning platform that lets multiple hospitals collaboratively train a wound classification model without ever moving patient images off-site. Each hospital trains locally on its own dataset, applies differential privacy noise to the gradients, and only the noised model weights travel to a central aggregator. Raw pixels never leave the hospital network.
 
 The model itself is a ResNet18 backbone fine-tuned to classify ten wound types (abrasions, burns, diabetic wounds, pressure wounds, surgical wounds, and more), with a built-in "unknown, refer to a doctor" fallback for anything it does not recognize confidently.
+
+> **Research software, not a medical device.** SecureDerm AI is a research and engineering project. It has not been clinically validated or cleared by any regulator, and its output must never replace the judgement of a qualified clinician.
 
 <br/>
 
@@ -254,6 +257,20 @@ pytest tests/test_prediction_history.py -v # history, batch prediction, rate lim
 pytest tests/test_account_controls.py -v   # profile, sign-out-everywhere, activity filters
 pytest tests/test_aggregator_metrics.py -v # Prometheus metrics
 ```
+
+<br/>
+
+## Contributing
+
+Contributions are welcome, from bug reports and tests to new features. Start with [CONTRIBUTING.md](CONTRIBUTING.md) for setup, the checks CI runs, and the project's privacy rules. Found a vulnerability? Please report it privately via [SECURITY.md](SECURITY.md).
+
+If SecureDerm AI is useful or interesting to you, a star helps other people working on privacy-preserving medical AI find it.
+
+<div align="center">
+
+[![Star History Chart](https://api.star-history.com/svg?repos=Tejo0507/securederm-ai&type=Date)](https://star-history.com/#Tejo0507/securederm-ai&Date)
+
+</div>
 
 <br/>
 
