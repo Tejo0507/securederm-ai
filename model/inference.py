@@ -14,6 +14,7 @@ to a doctor rather than mislabeled with false confidence.
 import hashlib
 import math
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 import torch
 from PIL import Image
@@ -63,6 +64,44 @@ def _checkpoint_id(path) -> str:
         for chunk in iter(lambda: fh.read(1 << 20), b""):
             digest.update(chunk)
     return digest.hexdigest()[:12]
+
+
+_id_cache: dict[tuple, str] = {}   # (path, mtime_ns, size) -> fingerprint
+
+
+def model_info() -> dict:
+    """Describe the deployed checkpoint and inference settings without
+    loading the network, so a status page can call it cheaply.
+
+    The fingerprint is the same one stamped on every prediction. Hashing a
+    large file is only redone when its modification time or size changes.
+    """
+    path = CHECKPOINTS_DIR / "global_model.pt"
+    settings = {
+        "classes": [CLASS_LABELS[i] for i in sorted(CLASS_LABELS)],
+        "image_size": IMAGE_SIZE,
+        "unknown_threshold": OOD_CONFIDENCE_THRESHOLD,
+        "temperature": INFERENCE_TEMPERATURE,
+        "test_time_augmentation": INFERENCE_TTA,
+        "top_k": TOP_K_PREDICTIONS,
+    }
+    stamp = _file_stamp(path)
+    if stamp is None:
+        return {"available": False, **settings}
+
+    key = (str(path), *stamp)
+    if key not in _id_cache:
+        _id_cache.clear()
+        _id_cache[key] = _checkpoint_id(path)
+    return {
+        "available": True,
+        "model_id": _id_cache[key],
+        "size_bytes": stamp[1],
+        "updated_at": datetime.fromtimestamp(stamp[0] / 1e9, tz=timezone.utc).isoformat(
+            timespec="seconds"
+        ),
+        **settings,
+    }
 
 
 class WoundPredictor:
