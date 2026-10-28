@@ -1,6 +1,7 @@
 import hashlib
 import os
 import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
@@ -133,6 +134,43 @@ async def delete_datasets(
     db.commit()
     audit("dataset_erased", hospital.id, images=removed)
     return {"deleted_images": removed}
+
+
+@router.get("/datasets/summary")
+async def dataset_summary(hospital: Hospital = Depends(get_current_hospital)):
+    """What this hospital has stored on the server: image count, disk usage,
+    breakdown by file format, and how close it is to the upload quota.
+    Read from disk, so it reflects the files themselves."""
+    hospital_dir = UPLOAD_DIR / str(hospital.id)
+    count = total_bytes = 0
+    formats: dict[str, int] = {}
+    oldest = newest = None
+    if hospital_dir.is_dir():
+        for path in hospital_dir.iterdir():
+            if not path.is_file():
+                continue
+            info = path.stat()
+            count += 1
+            total_bytes += info.st_size
+            ext = path.suffix.lstrip(".").lower() or "unknown"
+            formats[ext] = formats.get(ext, 0) + 1
+            oldest = info.st_mtime if oldest is None else min(oldest, info.st_mtime)
+            newest = info.st_mtime if newest is None else max(newest, info.st_mtime)
+
+    def _iso(ts):
+        if not ts:
+            return None
+        return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat(timespec="seconds")
+
+    return {
+        "images": count,
+        "total_bytes": total_bytes,
+        "formats": dict(sorted(formats.items(), key=lambda kv: (-kv[1], kv[0]))),
+        "quota": MAX_IMAGES_PER_HOSPITAL,
+        "quota_used": round(count / MAX_IMAGES_PER_HOSPITAL, 4),
+        "oldest_upload": _iso(oldest),
+        "newest_upload": _iso(newest),
+    }
 
 
 @router.get("/datasets")

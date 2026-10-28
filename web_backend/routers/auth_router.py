@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from config.settings import DEV_TOKEN_ECHO
 from web_backend.audit import audit, hash_identifier, read_events
 from web_backend.database import get_db
-from web_backend.db_models import Dataset, Hospital, MLModel
+from web_backend.db_models import Dataset, Hospital, MLModel, Prediction
 from web_backend.email_service import send_verification_email
 from web_backend.routers.hospital_router import wipe_hospital_files
 from web_backend.schemas import (
@@ -18,6 +18,7 @@ from web_backend.schemas import (
     HospitalSignup,
     HospitalLogin,
     HospitalResponse,
+    ProfileUpdate,
     SignupResponse,
     VerifyEmailRequest,
     ResendVerificationRequest,
@@ -238,6 +239,27 @@ async def logout(response: Response, request: Request, db: Session = Depends(get
     return {"status": "logged_out"}
 
 
+@router.post("/logout-all")
+async def logout_all(
+    request: Request,
+    response: Response,
+    hospital: Hospital = Depends(get_current_hospital),
+    db: Session = Depends(get_db),
+):
+    """End every session on the account, on every device, including this one.
+
+    For a lost laptop or a shared computer someone forgot to sign out of:
+    tokens issued up to now are rejected from here on, and signing in again
+    works normally.
+    """
+    verify_csrf(request)
+    hospital.sessions_valid_after = time.time()
+    db.commit()
+    audit("sessions_revoked", hospital.id)
+    clear_session_cookies(response)
+    return {"status": "all_sessions_ended"}
+
+
 @router.post("/change-password")
 async def change_password(
     payload: ChangePasswordRequest,
@@ -284,6 +306,7 @@ async def delete_account(
     hospital_id = hospital.id
     revoke_session_token(db, request.cookies.get(SESSION_COOKIE_NAME))
     db.query(Dataset).filter(Dataset.hospital_id == hospital_id).delete()
+    db.query(Prediction).filter(Prediction.hospital_id == hospital_id).delete()
     db.query(MLModel).filter(MLModel.created_by == hospital_id).update({MLModel.created_by: None})
     db.delete(hospital)
     db.commit()
@@ -296,13 +319,44 @@ async def delete_account(
 @router.get("/activity")
 async def my_activity(
     limit: int = Query(default=50, ge=1, le=200),
+    action: str | None = Query(
+        default=None, max_length=300,
+        description="Comma-separated action names to keep, e.g. login,password_changed",
+    ),
+    since: datetime | None = Query(
+        default=None, description="Only events at or after this ISO-8601 time (UTC if no zone)",
+    ),
     hospital: Hospital = Depends(get_current_hospital),
 ):
     """The account's own recent security-relevant events (logins, uploads,
     erasures, predictions), newest first — never anyone else's."""
-    return read_events(hospital.id, limit)
+    actions = {a.strip() for a in action.split(",") if a.strip()} if action else None
+    return read_events(hospital.id, limit, actions=actions, since=since)
 
 
 @router.get("/me", response_model=HospitalResponse)
 async def get_me(hospital: Hospital = Depends(get_current_hospital)):
+    return _hospital_response(hospital)
+
+
+@router.patch("/me", response_model=HospitalResponse)
+async def update_me(
+    payload: ProfileUpdate,
+    request: Request,
+    hospital: Hospital = Depends(get_current_hospital),
+    db: Session = Depends(get_db),
+):
+    """Change the hospital's display name and/or location."""
+    verify_csrf(request)
+    changed = []
+    if payload.name is not None and payload.name != hospital.name:
+        hospital.name = payload.name
+        changed.append("name")
+    if payload.location is not None and payload.location != hospital.location:
+        hospital.location = payload.location
+        changed.append("location")
+    if changed:
+        db.commit()
+        db.refresh(hospital)
+        audit("profile_updated", hospital.id, fields=",".join(changed))
     return _hospital_response(hospital)

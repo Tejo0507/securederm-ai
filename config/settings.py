@@ -90,6 +90,10 @@ if INFERENCE_TEMPERATURE <= 0:
 INFERENCE_TTA = os.getenv("INFERENCE_TTA", "false").lower() == "true"
 # How many ranked candidate classes /api/predict returns.
 TOP_K_PREDICTIONS = 3
+# Images one hospital account may classify per minute through the web API
+# (a forward pass is CPU-heavy, so an unbounded caller could starve everyone
+# else). 0 disables the limit.
+PREDICT_RATE_LIMIT_PER_MINUTE = int(os.getenv("PREDICT_RATE_LIMIT_PER_MINUTE", "30"))
 
 # ── Differential Privacy (Opacus) ────────────────────────────────────────
 USE_DIFFERENTIAL_PRIVACY = True

@@ -153,6 +153,31 @@ def enforce_auth_rate_limit(request: Request, bucket: str) -> None:
         _sweep_expired_rate_limit_entries(now)
 
 
+def enforce_account_rate_limit(
+    hospital_id: int, bucket: str, max_requests: int, window_seconds: int = 60, cost: int = 1
+) -> None:
+    """Sliding-window limit per signed-in account (rather than per IP), for
+    endpoints that cost real CPU such as model inference. `cost` is how many
+    units this call consumes (e.g. images in a batch); `max_requests` of 0
+    disables the limit. Shares the in-memory table of the auth limiter, so it
+    has the same single-process caveat."""
+    if max_requests <= 0:
+        return
+    key = f"{bucket}:account:{hospital_id}"
+    now = time.time()
+    attempts = _auth_attempts[key]
+    while attempts and now - attempts[0] > window_seconds:
+        attempts.popleft()
+    if len(attempts) + cost > max_requests:
+        retry_after = max(1, int(window_seconds - (now - attempts[0])) + 1) if attempts else 1
+        raise HTTPException(
+            status_code=429,
+            detail="Too many requests. Please slow down and try again shortly.",
+            headers={"Retry-After": str(retry_after)},
+        )
+    attempts.extend([now] * cost)
+
+
 # OWASP's 2023 minimum for PBKDF2-HMAC-SHA256. The iteration count is
 # encoded into every new hash (django-style "algorithm$iterations$salt$hash")
 # specifically so it can be raised again later without invalidating
@@ -208,7 +233,8 @@ def create_token(payload: dict) -> str:
         .rstrip("=")
     )
     # jti uniquely names this token so it can be revoked individually.
-    data = {**payload, "exp": time.time() + TOKEN_EXPIRY, "jti": secrets.token_urlsafe(16)}
+    now = time.time()
+    data = {**payload, "iat": now, "exp": now + TOKEN_EXPIRY, "jti": secrets.token_urlsafe(16)}
     body = (
         base64.urlsafe_b64encode(json.dumps(data).encode()).decode().rstrip("=")
     )
@@ -266,4 +292,10 @@ async def get_current_hospital(
     )
     if hospital is None:
         raise HTTPException(status_code=401, detail="Hospital not found")
+    # "Sign out everywhere" sets a cut-off; a token issued before it (or one
+    # with no issue time at all) no longer counts.
+    if hospital.sessions_valid_after is not None and (
+        payload.get("iat", 0) < hospital.sessions_valid_after
+    ):
+        raise HTTPException(status_code=401, detail="Session has been signed out")
     return hospital
