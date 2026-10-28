@@ -7,6 +7,7 @@ platform ever keeping a patient image or a diagnosis tied to a person.
 
 import logging
 
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from web_backend.db_models import Prediction
@@ -41,6 +42,44 @@ def serialize_prediction(row: Prediction) -> dict:
         "confidence": row.confidence,
         "uncertainty": row.uncertainty,
         "is_unknown": row.is_unknown,
+    }
+
+
+def summarize_history(db: Session, hospital_id: int) -> dict:
+    """Aggregate usage figures for one hospital's predictions."""
+    own = Prediction.hospital_id == hospital_id
+    total, unknown, avg_confidence, first, last = db.query(
+        func.count(Prediction.id),
+        func.coalesce(func.sum(case((Prediction.is_unknown, 1), else_=0)), 0),
+        func.avg(Prediction.confidence),
+        func.min(Prediction.created_at),
+        func.max(Prediction.created_at),
+    ).filter(own).one()
+
+    by_class = dict(
+        db.query(Prediction.predicted_class, func.count(Prediction.id))
+        .filter(own)
+        .group_by(Prediction.predicted_class)
+        .order_by(func.count(Prediction.id).desc(), Prediction.predicted_class)
+        .all()
+    )
+    by_model = [
+        {"model_id": model_id, "count": count}
+        for model_id, count in db.query(Prediction.model_id, func.count(Prediction.id))
+        .filter(own)
+        .group_by(Prediction.model_id)
+        .order_by(func.count(Prediction.id).desc(), Prediction.model_id)
+        .all()
+    ]
+    return {
+        "total": total,
+        "unknown": unknown,
+        "unknown_rate": round(unknown / total, 4) if total else 0.0,
+        "average_confidence": round(avg_confidence, 4) if avg_confidence is not None else None,
+        "first_at": first.isoformat() if first else None,
+        "last_at": last.isoformat() if last else None,
+        "by_class": by_class,
+        "by_model": by_model,
     }
 
 

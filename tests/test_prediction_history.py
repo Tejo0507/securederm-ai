@@ -184,3 +184,49 @@ class TestListing:
         with TestClient(app, base_url="https://testserver") as other:
             _sign_in(other, "list4b@example.com")
             assert other.get("/api/predictions").json() == {"total": 0, "items": []}
+
+
+class TestSummary:
+    def test_requires_auth(self, client):
+        assert client.get("/api/predictions/summary").status_code == 401
+
+    def test_empty_history(self, client):
+        _sign_in(client, "sum1@example.com")
+        body = client.get("/api/predictions/summary").json()
+        assert body["total"] == 0
+        assert body["unknown_rate"] == 0.0
+        assert body["average_confidence"] is None
+        assert body["by_class"] == {} and body["by_model"] == []
+        assert body["first_at"] is None and body["last_at"] is None
+
+    def test_aggregates(self, client, monkeypatch):
+        _use_predictor(
+            monkeypatch,
+            _Result("Burns", 0.9, model_id="m1"),
+            _Result("Burns", 0.7, model_id="m1"),
+            _Result("Cut", 0.2, unknown=True, model_id="m2"),
+            _Result("Normal", 0.8, model_id="m2"),
+        )
+        headers = _sign_in(client, "sum2@example.com")
+        for _ in range(4):
+            _predict(client, headers)
+
+        body = client.get("/api/predictions/summary").json()
+        assert body["total"] == 4
+        assert body["unknown"] == 1
+        assert body["unknown_rate"] == 0.25
+        assert body["average_confidence"] == pytest.approx(0.65)
+        assert body["by_class"] == {"Burns": 2, "Cut": 1, "Normal": 1}
+        assert body["by_model"] == [
+            {"model_id": "m1", "count": 2}, {"model_id": "m2", "count": 2},
+        ]
+        assert body["first_at"] and body["last_at"]
+
+    def test_summary_is_scoped_to_the_account(self, client, monkeypatch):
+        _use_predictor(monkeypatch)
+        headers = _sign_in(client, "sum3a@example.com")
+        _predict(client, headers)
+
+        with TestClient(app, base_url="https://testserver") as other:
+            _sign_in(other, "sum3b@example.com")
+            assert other.get("/api/predictions/summary").json()["total"] == 0
