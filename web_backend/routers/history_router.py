@@ -1,13 +1,13 @@
 """Read access to a hospital's own prediction history."""
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from web_backend.audit import audit
-from web_backend.auth import get_current_hospital
+from web_backend.auth import get_current_hospital, verify_csrf
 from web_backend.database import get_db
-from web_backend.db_models import Hospital
+from web_backend.db_models import Hospital, Prediction
 from web_backend.prediction_history import (
     MAX_EXPORT_ROWS,
     history_query,
@@ -49,6 +49,20 @@ async def export_predictions(
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="prediction-history.csv"'},
     )
+
+
+@router.delete("/predictions")
+async def erase_predictions(
+    request: Request,
+    hospital: Hospital = Depends(get_current_hospital),
+    db: Session = Depends(get_db),
+):
+    """Erase this hospital's entire prediction history."""
+    verify_csrf(request)
+    removed = db.query(Prediction).filter(Prediction.hospital_id == hospital.id).delete()
+    db.commit()
+    audit("history_erased", hospital.id, rows=removed)
+    return {"deleted_predictions": removed}
 
 
 @router.get("/predictions")
