@@ -34,6 +34,68 @@ def _sign_in(client, email="account@example.com", name="Account Hospital", passw
     return {auth_module.CSRF_HEADER_NAME: client.cookies.get(auth_module.CSRF_COOKIE_NAME)}
 
 
+class TestActivityFilters:
+    def _event(self, hospital_id, action, ts):
+        return {"ts": ts, "action": action, "hospital_id": hospital_id}
+
+    @pytest.fixture
+    def log(self, tmp_path, monkeypatch):
+        """A throwaway audit log with a known, chronological history."""
+        from web_backend import audit as audit_module
+
+        path = tmp_path / "audit.log"
+        events = [
+            self._event(1, "login", "2026-01-01T10:00:00+00:00"),
+            self._event(2, "login", "2026-01-02T10:00:00+00:00"),
+            self._event(1, "dataset_upload", "2026-01-03T10:00:00+00:00"),
+            self._event(1, "password_changed", "2026-01-04T10:00:00+00:00"),
+            self._event(1, "login", "2026-01-05T10:00:00+00:00"),
+        ]
+        path.write_text("\n".join(json.dumps(e) for e in events) + "\n", encoding="utf-8")
+        monkeypatch.setattr(audit_module, "AUDIT_LOG_PATH", path)
+        return audit_module
+
+    def test_filter_by_action(self, log):
+        events = log.read_events(1, actions={"login"})
+        assert [e["ts"][:10] for e in events] == ["2026-01-05", "2026-01-01"]
+
+    def test_multiple_actions(self, log):
+        events = log.read_events(1, actions={"dataset_upload", "password_changed"})
+        assert [e["action"] for e in events] == ["password_changed", "dataset_upload"]
+
+    def test_since_is_inclusive_and_stops_at_older_events(self, log):
+        from datetime import datetime, timezone
+
+        events = log.read_events(1, since=datetime(2026, 1, 3, 10, tzinfo=timezone.utc))
+        assert [e["ts"][:10] for e in events] == ["2026-01-05", "2026-01-04", "2026-01-03"]
+
+    def test_naive_since_is_read_as_utc(self, log):
+        from datetime import datetime
+
+        assert len(log.read_events(1, since=datetime(2026, 1, 5))) == 1
+
+    def test_filters_combine_with_limit(self, log):
+        events = log.read_events(1, limit=1, actions={"login"})
+        assert [e["ts"][:10] for e in events] == ["2026-01-05"]
+
+    def test_endpoint_accepts_the_filters(self, client):
+        headers = _sign_in(client, "activity1@example.com")
+        client.patch("/api/auth/me", headers=headers, json={"name": "Renamed Hospital"})
+
+        everything = client.get("/api/auth/activity").json()
+        assert {"email_verified", "profile_updated"} <= {e["action"] for e in everything}
+
+        only = client.get("/api/auth/activity?action=profile_updated").json()
+        assert [e["action"] for e in only] == ["profile_updated"]
+
+        recent = client.get("/api/auth/activity?since=2999-01-01T00:00:00Z").json()
+        assert recent == []
+
+    def test_endpoint_rejects_a_malformed_time(self, client):
+        _sign_in(client, "activity2@example.com")
+        assert client.get("/api/auth/activity?since=yesterday").status_code == 422
+
+
 class TestSignOutEverywhere:
     def _second_device(self, email, password="supersecret1"):
         device = TestClient(app, base_url="https://testserver")
