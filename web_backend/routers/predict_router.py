@@ -10,10 +10,13 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from PIL import Image
+from sqlalchemy.orm import Session
 
 from web_backend.audit import audit
 from web_backend.auth import get_current_hospital, verify_csrf
+from web_backend.database import get_db
 from web_backend.db_models import Hospital
+from web_backend.prediction_history import record_prediction
 from web_backend.image_validation import MAX_FILE_SIZE_BYTES, is_genuine_image
 
 logger = logging.getLogger("web_backend.predict")
@@ -28,6 +31,7 @@ def predict_wound(  # sync def: FastAPI runs this in a worker thread, so a
     request: Request,
     file: UploadFile = File(...),
     hospital: Hospital = Depends(get_current_hospital),
+    db: Session = Depends(get_db),
 ):
     verify_csrf(request)
 
@@ -65,6 +69,7 @@ def predict_wound(  # sync def: FastAPI runs this in a worker thread, so a
     # image or the diagnosis text.
     audit("prediction", hospital.id, model_id=getattr(result, "model_id", None),
           unknown=bool(result.is_unknown))
+    record_prediction(db, hospital.id, result)
 
     return {
         "model_id": getattr(result, "model_id", None),
