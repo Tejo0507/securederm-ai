@@ -18,6 +18,7 @@ from web_backend.schemas import (
     HospitalSignup,
     HospitalLogin,
     HospitalResponse,
+    ProfileUpdate,
     SignupResponse,
     VerifyEmailRequest,
     ResendVerificationRequest,
@@ -306,4 +307,27 @@ async def my_activity(
 
 @router.get("/me", response_model=HospitalResponse)
 async def get_me(hospital: Hospital = Depends(get_current_hospital)):
+    return _hospital_response(hospital)
+
+
+@router.patch("/me", response_model=HospitalResponse)
+async def update_me(
+    payload: ProfileUpdate,
+    request: Request,
+    hospital: Hospital = Depends(get_current_hospital),
+    db: Session = Depends(get_db),
+):
+    """Change the hospital's display name and/or location."""
+    verify_csrf(request)
+    changed = []
+    if payload.name is not None and payload.name != hospital.name:
+        hospital.name = payload.name
+        changed.append("name")
+    if payload.location is not None and payload.location != hospital.location:
+        hospital.location = payload.location
+        changed.append("location")
+    if changed:
+        db.commit()
+        db.refresh(hospital)
+        audit("profile_updated", hospital.id, fields=",".join(changed))
     return _hospital_response(hospital)
