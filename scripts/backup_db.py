@@ -15,7 +15,9 @@ Usage:
 """
 
 import argparse
+import glob
 import os
+import re
 import sqlite3
 import sys
 from datetime import datetime, timezone
@@ -63,10 +65,18 @@ def backup_database(source_path: Path, backup_dir: Path) -> Path:
 
 def prune_old_backups(backup_dir: Path, stem: str, keep: int) -> list[Path]:
     """Delete all but the `keep` most recent backups for this database
-    (matched by filename stem, so backing up two different databases into
-    the same directory doesn't prune each other's history)."""
+    (matched by filename stem plus the timestamp backup_database writes, so
+    backing up two different databases into the same directory doesn't prune
+    each other's history — even when one name extends the other, as
+    "securederm" and "securederm_old" do).
+
+    `keep` must be at least 1: 0 would delete the backup just taken.
+    """
+    if keep < 1:
+        raise ValueError(f"keep must be at least 1 (got {keep}).")
+    own_backup = re.compile(rf"{re.escape(stem)}_\d{{8}}T\d{{12}}Z(\..*)?")
     existing = sorted(
-        backup_dir.glob(f"{stem}_*"),
+        (p for p in backup_dir.glob(f"{glob.escape(stem)}_*") if own_backup.fullmatch(p.name)),
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
@@ -74,6 +84,13 @@ def prune_old_backups(backup_dir: Path, stem: str, keep: int) -> list[Path]:
     for path in to_delete:
         path.unlink()
     return to_delete
+
+
+def _at_least_one(value: str) -> int:
+    number = int(value)
+    if number < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return number
 
 
 def main() -> None:
@@ -86,7 +103,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--keep",
-        type=int,
+        type=_at_least_one,
         default=None,
         help="If set, delete older backups beyond this many most-recent ones.",
     )
