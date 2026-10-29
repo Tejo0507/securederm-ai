@@ -147,3 +147,31 @@ class TestTrainLocalBudget:
             train_module.train_local(
                 dataset=_Tiny(), batch_size=4, epochs=1, node_id="budget_node"
             )
+
+    def test_a_round_that_crashes_mid_epoch_is_still_charged(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(privacy_layer, "LOGS_DIR", tmp_path)
+        monkeypatch.setattr(privacy_layer, "DP_TOTAL_EPSILON_BUDGET", 100.0)
+        monkeypatch.setattr(train_module, "USE_DIFFERENTIAL_PRIVACY", True)
+
+        real_step = train_module.train_step
+        calls = {"n": 0}
+
+        def crash_on_second_step(*args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise RuntimeError("disk error mid-epoch")
+            return real_step(*args, **kwargs)
+
+        monkeypatch.setattr(train_module, "train_step", crash_on_second_step)
+
+        with pytest.raises(RuntimeError, match="mid-epoch"):
+            train_module.train_local(
+                dataset=_Tiny(), batch_size=4, epochs=1, node_id="crash_node"
+            )
+
+        # One step already touched the patients' data, so the ledger must show
+        # it; otherwise a node that keeps crashing and retrying spends budget
+        # that is never counted.
+        ledger = PrivacyBudget("crash_node", total_budget=100.0, directory=tmp_path)
+        assert ledger.spent > 0
+        assert ledger.rounds == 1

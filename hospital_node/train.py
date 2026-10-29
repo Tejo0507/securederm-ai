@@ -163,22 +163,34 @@ def train_local(
     model.train()
     running_loss = 0.0
 
-    for epoch in range(epochs):
-        epoch_loss = 0.0
-        batches = 0
+    # Charge the budget as soon as the data has been touched, even if the run
+    # is then discarded as diverged or dies mid-epoch (an unreadable batch, an
+    # out-of-memory error): the privacy cost of the steps already taken was
+    # incurred regardless, and a node that crashes and retries would otherwise
+    # keep spending budget that is never counted.
+    epsilon_spent = None
+    try:
+        for epoch in range(epochs):
+            epoch_loss = 0.0
+            batches = 0
 
-        for images, labels in loader:
-            images = images.to(device)
-            labels = labels.to(device)
+            for images, labels in loader:
+                images = images.to(device)
+                labels = labels.to(device)
 
-            batch_loss = train_step(model, optimizer, criterion, images, labels)
-            if batch_loss is not None:
-                epoch_loss += batch_loss
-                batches += 1
+                batch_loss = train_step(model, optimizer, criterion, images, labels)
+                if batch_loss is not None:
+                    epoch_loss += batch_loss
+                    batches += 1
 
-        avg_loss = epoch_loss / max(batches, 1)
-        running_loss = avg_loss
-        logger.info("  Epoch %d/%d — loss: %.4f", epoch + 1, epochs, avg_loss)
+            avg_loss = epoch_loss / max(batches, 1)
+            running_loss = avg_loss
+            logger.info("  Epoch %d/%d — loss: %.4f", epoch + 1, epochs, avg_loss)
+    finally:
+        if privacy_engine is not None:
+            epsilon_spent = get_privacy_spent(privacy_engine)["epsilon"]
+            if budget is not None:
+                budget.record(epsilon_spent)
 
     # Extract base state_dict (unwrap if Opacus-wrapped)
     if USE_DIFFERENTIAL_PRIVACY and hasattr(model, "_module"):
@@ -189,14 +201,6 @@ def train_local(
     # Ship CPU tensors: the aggregator (and torch.load(map_location="cpu")
     # on the other side) shouldn't depend on this node's GPU layout.
     state_dict = {k: v.detach().cpu() for k, v in state_dict.items()}
-
-    # Charge the budget as soon as the data has been touched, even if the run
-    # is then discarded as diverged: the privacy cost was incurred regardless.
-    epsilon_spent = None
-    if privacy_engine is not None:
-        epsilon_spent = get_privacy_spent(privacy_engine)["epsilon"]
-        if budget is not None:
-            budget.record(epsilon_spent)
 
     # A diverged run would be rejected by the aggregator anyway; failing
     # here says why and avoids uploading ~45 MB of NaNs.
