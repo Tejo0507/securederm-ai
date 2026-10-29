@@ -1,12 +1,10 @@
 """
 Wound classification model — ResNet18 backbone.
 
-Takes a 224x224 RGB wound image and outputs a probability
-distribution over 4 infection severity classes:
-  0 = Normal Healing
-  1 = Mild Infection
-  2 = Moderate Infection
-  3 = Severe Infection
+Takes a 224x224 RGB wound image and outputs logits over NUM_CLASSES
+wound types (see CLASS_LABELS in config.settings: abrasions, bruises,
+burns, cuts, diabetic wounds, lacerations, normal skin, pressure wounds,
+surgical wounds and venous wounds).
 """
 
 import torch
