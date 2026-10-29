@@ -101,6 +101,58 @@ class TestActivityFilters:
         assert client.get("/api/auth/activity?since=yesterday").status_code == 422
 
 
+class TestPasswordChangeEndsOtherSessions:
+    NEW_PASSWORD = secrets.token_urlsafe(12)
+
+    def test_other_devices_are_signed_out(self, client):
+        email = "pwchange1@example.com"
+        headers = _sign_in(client, email)
+        with TestClient(app, base_url="https://testserver") as other:
+            assert other.post(
+                "/api/auth/login", json={"email": email, "password": TEST_PASSWORD}
+            ).status_code == 200
+
+            resp = client.post(
+                "/api/auth/change-password",
+                headers=headers,
+                json={"current_password": TEST_PASSWORD, "new_password": self.NEW_PASSWORD},
+            )
+            assert resp.status_code == 200
+
+            # The session that might be in someone else's hands is the point of
+            # changing the password: it must not survive on the other device.
+            stale = other.get("/api/auth/me")
+            assert stale.status_code == 401
+            assert stale.json()["detail"] == "Session has been signed out"
+
+    def test_signing_in_with_the_new_password_works(self, client):
+        email = "pwchange2@example.com"
+        headers = _sign_in(client, email)
+        client.post(
+            "/api/auth/change-password",
+            headers=headers,
+            json={"current_password": TEST_PASSWORD, "new_password": self.NEW_PASSWORD},
+        )
+        with TestClient(app, base_url="https://testserver") as fresh:
+            assert fresh.post(
+                "/api/auth/login", json={"email": email, "password": self.NEW_PASSWORD}
+            ).status_code == 200
+            assert fresh.get("/api/auth/me").status_code == 200
+
+    def test_a_rejected_change_leaves_sessions_alone(self, client):
+        email = "pwchange3@example.com"
+        headers = _sign_in(client, email)
+        with TestClient(app, base_url="https://testserver") as other:
+            other.post("/api/auth/login", json={"email": email, "password": TEST_PASSWORD})
+            resp = client.post(
+                "/api/auth/change-password",
+                headers=headers,
+                json={"current_password": "not-the-password", "new_password": self.NEW_PASSWORD},
+            )
+            assert resp.status_code == 401
+            assert other.get("/api/auth/me").status_code == 200
+
+
 class TestSignOutEverywhere:
     def _second_device(self, email, password=TEST_PASSWORD):
         device = TestClient(app, base_url="https://testserver")
