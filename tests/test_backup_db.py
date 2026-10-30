@@ -11,6 +11,7 @@ import sqlite3
 import pytest
 
 from scripts.backup_db import backup_database, prune_old_backups
+from scripts.backup_db import main as backup_main
 
 
 @pytest.fixture
@@ -73,7 +74,49 @@ class TestPruneOldBackups:
         backup_dir.mkdir()
         (backup_dir / "other_db_20260101T000000Z.db").touch()
 
-        deleted = prune_old_backups(backup_dir, "securederm", keep=0)
+        deleted = prune_old_backups(backup_dir, "securederm", keep=1)
 
         assert deleted == []
         assert (backup_dir / "other_db_20260101T000000Z.db").exists()
+
+    def test_prune_does_not_touch_a_database_whose_name_extends_the_stem(self, tmp_path):
+        # "securederm_old" backups are named securederm_old_<timestamp>.db, which a
+        # bare "securederm_*" pattern also matches.
+        backup_dir = tmp_path / "backups"
+        backup_dir.mkdir()
+        mine = backup_dir / "securederm_20260101T000000000000Z.db"
+        theirs = backup_dir / "securederm_old_20260101T000000000000Z.db"
+        mine.touch()
+        theirs.touch()
+
+        deleted = prune_old_backups(backup_dir, "securederm", keep=1)
+
+        assert deleted == []
+        assert mine.exists() and theirs.exists()
+
+    @pytest.mark.parametrize("keep", [0, -1])
+    def test_prune_refuses_to_keep_fewer_than_one(self, source_db, tmp_path, keep):
+        backup_dir = tmp_path / "backups"
+        backup = backup_database(source_db, backup_dir)
+
+        with pytest.raises(ValueError, match="keep"):
+            prune_old_backups(backup_dir, source_db.stem, keep=keep)
+
+        assert backup.exists()
+
+    @pytest.mark.parametrize("keep", ["0", "-3"])
+    def test_cli_rejects_a_keep_that_would_delete_the_new_backup(
+        self, source_db, tmp_path, monkeypatch, keep
+    ):
+        backup_dir = tmp_path / "backups"
+        monkeypatch.setattr(
+            "sys.argv",
+            ["backup_db", "--source", str(source_db), "--backup-dir", str(backup_dir),
+             "--keep", keep],
+        )
+
+        with pytest.raises(SystemExit) as exc:
+            backup_main()
+
+        assert exc.value.code == 2
+        assert not backup_dir.exists()   # rejected before anything was written
