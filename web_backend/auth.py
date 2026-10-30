@@ -163,6 +163,16 @@ def enforce_account_rate_limit(
     has the same single-process caveat."""
     if max_requests <= 0:
         return
+    if cost > max_requests:
+        # No amount of waiting makes this fit, so a 429 with Retry-After would
+        # send the caller into a loop that can never succeed. Nothing is recorded.
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"This request needs {cost} units but the limit is {max_requests} per "
+                f"{window_seconds} seconds. Send fewer at a time."
+            ),
+        )
     key = f"{bucket}:account:{hospital_id}"
     now = time.time()
     attempts = _auth_attempts[key]

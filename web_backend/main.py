@@ -146,24 +146,17 @@ if "*" in _cors_origins:
     # authenticated requests with a visitor's session cookie.
     logger.warning("Ignoring '*' in CORS_ORIGINS: credentialed requests need explicit origins.")
     _cors_origins = [o for o in _cors_origins if o != "*"]
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=_cors_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=[REQUEST_ID_HEADER],
-)
 
 
 @app.middleware("http")
 async def _security_headers_and_body_limit(request: Request, call_next):
     content_length = request.headers.get("content-length")
     if content_length and content_length.isdigit() and int(content_length) > MAX_REQUEST_BODY_BYTES:
-        return JSONResponse(status_code=413, content={"detail": "Request body too large."})
+        response = JSONResponse(status_code=413, content={"detail": "Request body too large."})
+    else:
+        response = await call_next(request)
 
-    response = await call_next(request)
-
+    # Applied to the early 413 as well as to routed responses.
     # Defense-in-depth headers appropriate for a same-origin API server.
     # CSP is deliberately restrictive: this backend only ever serves JSON
     # (and cookies), never HTML it renders itself, so there's no reason to
@@ -188,6 +181,20 @@ async def _request_id(request: Request, call_next):
     response = await call_next(request)
     response.headers[REQUEST_ID_HEADER] = request_id
     return response
+
+
+# Added last, so it is the outermost layer. Starlette wraps in reverse order of
+# registration, and a response produced by an inner middleware (the body-size
+# 413, in particular) never passes back through a CORS layer sitting inside it:
+# the browser then hides the real error behind a generic network failure.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=[REQUEST_ID_HEADER],
+)
 
 
 app.include_router(auth_router.router, prefix="/api/auth", tags=["auth"])

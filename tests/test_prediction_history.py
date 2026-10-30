@@ -322,6 +322,21 @@ class TestBatchPredict:
         assert self._batch(client, headers, parts).status_code == 429   # 2 + 2 > 3
         assert _predict(client, headers).status_code == 200            # a single image still fits
 
+    def test_a_batch_bigger_than_the_whole_limit_can_never_succeed(self, client, monkeypatch):
+        # 4 images against 3 per minute will not fit however long the caller
+        # waits, so telling them to retry later (429 + Retry-After) is a lie.
+        _use_predictor(monkeypatch)
+        monkeypatch.setattr("web_backend.routers.predict_router.PREDICT_RATE_LIMIT_PER_MINUTE", 3)
+        headers = _sign_in(client, "batch7@example.com")
+        parts = [("files", (f"{i}.png", _png(), "image/png")) for i in range(4)]
+
+        resp = self._batch(client, headers, parts)
+
+        assert resp.status_code == 413
+        assert "retry-after" not in resp.headers
+        assert "3" in resp.json()["detail"]
+        assert _predict(client, headers).status_code == 200   # the refusal cost nothing
+
     def test_no_model_is_a_503(self, client, monkeypatch):
         def _missing():
             raise FileNotFoundError("no checkpoint")

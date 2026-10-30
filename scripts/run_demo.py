@@ -42,7 +42,9 @@ def wait_for_server(url: str, timeout: int = 30) -> bool:
             resp = requests.get(f"{url}/status", timeout=2)
             if resp.status_code == 200:
                 return True
-        except requests.ConnectionError:
+        except requests.RequestException:
+            # Refused while it boots, or a ReadTimeout once the port is bound
+            # but the app is still loading; keep waiting either way.
             pass
         time.sleep(1)
     return False
@@ -124,7 +126,8 @@ def print_final_summary() -> None:
     print("=" * 50 + "\n")
 
 
-def main():
+def main() -> int:
+    """Run the demo; returns the process exit code (0 only if every step worked)."""
     python = sys.executable
     procs: list[subprocess.Popen] = []
 
@@ -144,7 +147,7 @@ def main():
 
         if not wait_for_server(AGGREGATOR_URL):
             logger.error("Aggregator did not start in time — aborting.")
-            return
+            return 1
 
         logger.info("Aggregator is up at %s", AGGREGATOR_URL)
 
@@ -174,8 +177,15 @@ def main():
 
         # 4) Wait for both clients to finish
         logger.info("Waiting for federated training to complete ...")
-        node_a.wait()
-        node_b.wait()
+        results = {"hospital_A": node_a.wait(), "hospital_B": node_b.wait()}
+        failed = [name for name, code in results.items() if code != 0]
+        if failed:
+            # Evaluating and demoing a model that never finished training
+            # would present stale or untrained results as this run's outcome.
+            logger.error(
+                "Federated training failed for %s — skipping evaluation.", ", ".join(failed)
+            )
+            return 1
         logger.info("All clients finished.")
 
         # 5) Save metrics and model
@@ -206,9 +216,11 @@ def main():
 
         # 9) Final summary
         print_final_summary()
+        return 0
 
     except KeyboardInterrupt:
         logger.info("Interrupted — shutting down.")
+        return 130
     finally:
         for p in procs:
             p.terminate()
@@ -218,8 +230,8 @@ def main():
             except subprocess.TimeoutExpired:
                 p.kill()  # a child ignoring SIGTERM must not abort cleanup
                 p.wait()
-        logger.info("Demo complete.")
+        logger.info("Demo processes stopped.")
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

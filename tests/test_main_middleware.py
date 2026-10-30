@@ -124,6 +124,22 @@ class TestBodySizeLimit:
         )
         assert resp.status_code == 413
 
+    def test_rejection_is_readable_by_the_browser_frontend(self, client, monkeypatch):
+        # The frontend is a different origin from the API. A 413 that leaves
+        # without CORS headers is hidden by the browser, which then reports a
+        # generic network failure instead of "Request body too large."
+        monkeypatch.setattr(main_module, "MAX_REQUEST_BODY_BYTES", 10)
+        resp = client.post(
+            "/api/auth/login",
+            json={"email": "someone@example.com", "password": "whatever123"},
+            headers={"Origin": "http://localhost:3000"},
+        )
+        assert resp.status_code == 413
+        assert resp.headers["access-control-allow-origin"] == "http://localhost:3000"
+        assert resp.headers["access-control-allow-credentials"] == "true"
+        assert resp.headers["X-Request-ID"]   # still tagged, and still has security headers
+        assert resp.headers["X-Content-Type-Options"] == "nosniff"
+
     def test_normal_sized_request_not_rejected(self, client, monkeypatch):
         monkeypatch.setattr(main_module, "MAX_REQUEST_BODY_BYTES", 10 * 1024 * 1024)
         resp = client.post(
