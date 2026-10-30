@@ -37,6 +37,16 @@ _training_state: dict[int, dict] = {}
 _background_tasks: set[asyncio.Task] = set()
 
 
+def _roster(*names: str) -> str:
+    """Comma-joined participant list for FederatedRound.participating_hospitals.
+
+    /training/metrics reads the node count back by splitting on commas, so a
+    comma inside a name ("St. Mary's, Boston") would be counted as an extra
+    node. Drop them from the stored name; the separator stays unambiguous.
+    """
+    return ", ".join(name.replace(",", "").strip() for name in names)
+
+
 def _state_for(hospital_id: int) -> dict:
     return _training_state.setdefault(hospital_id, _fresh_state())
 
@@ -128,7 +138,7 @@ async def _run_simulation(state: dict, hospital_name: str) -> None:
         try:
             db.add(FederatedRound(
                 round_number=round_num,
-                participating_hospitals=f"{hospital_name}, {partner}",
+                participating_hospitals=_roster(hospital_name, partner),
                 avg_loss=avg_loss,
             ))
             db.commit()
