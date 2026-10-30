@@ -275,10 +275,11 @@ async def change_password(
         raise HTTPException(status_code=401, detail="Current password is incorrect")
 
     hospital.password_hash = await run_in_threadpool(hash_password, payload.new_password)
+    # A session on any device may be in someone else's hands; end them all
+    # (not just this one) and make the user sign in again with the new password.
+    hospital.sessions_valid_after = time.time()
     db.commit()
     audit("password_changed", hospital.id)
-    # The old session may be in someone else's hands; end it and make the
-    # user sign in again with the new password.
     revoke_session_token(db, request.cookies.get(SESSION_COOKIE_NAME))
     clear_session_cookies(response)
     return {"status": "password_changed"}
