@@ -294,8 +294,20 @@ async def list_hospitals(
     db: Session = Depends(get_db),
     limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
     offset: int = Query(default=0, ge=0),
+    q: str | None = Query(
+        default=None, max_length=100, description="Case-insensitive match on name or location"
+    ),
 ):
-    hospitals = db.query(Hospital).order_by(Hospital.id).offset(offset).limit(limit).all()
+    query = db.query(Hospital)
+    if q and q.strip():
+        # Escape LIKE wildcards so a search for "100%" or "a_b" matches literally.
+        escaped = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
+        query = query.filter(
+            Hospital.name.ilike(pattern, escape="\\")
+            | Hospital.location.ilike(pattern, escape="\\")
+        )
+    hospitals = query.order_by(Hospital.id).offset(offset).limit(limit).all()
     return [
         {"id": h.id, "name": h.name, "location": h.location}
         for h in hospitals
