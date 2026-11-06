@@ -604,6 +604,29 @@ async def server_status(x_node_token: str | None = Header(None, alias="X-Node-To
     }
 
 
+@app.get("/nodes")
+async def list_nodes(x_node_token: str | None = Header(None, alias="X-Node-Token")):
+    """The operator's view of enrolled hospitals: id, declared dataset size,
+    enrolment time and whether an update is waiting. Admin token only, since a
+    node's token must never reveal who else is on the network. Tokens are never
+    returned."""
+    if not _is_admin_token(x_node_token):
+        raise HTTPException(status_code=403, detail="Admin token required.")
+    waiting = {u["hospital_id"] for u in pending_updates}
+    return {
+        "count": len(registered_nodes),
+        "nodes": [
+            {
+                "hospital_id": hospital_id,
+                "dataset_size": node["dataset_size"],
+                "registered_at": node["registered_at"],
+                "update_pending": hospital_id in waiting,
+            }
+            for hospital_id, node in sorted(registered_nodes.items())
+        ],
+    }
+
+
 @app.get("/round/metrics")
 async def get_round_metrics(x_node_token: str | None = Header(None, alias="X-Node-Token")):
     """Return per-round aggregation metrics.
