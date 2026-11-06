@@ -6,11 +6,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from web_backend.audit import audit
 from web_backend.database import get_db
-from web_backend.db_models import Hospital, Dataset, MLModel
+from web_backend.db_models import Hospital, Dataset, FederatedRound, MLModel
 from web_backend.auth import get_current_hospital, verify_csrf
 from web_backend.image_validation import MAX_FILE_SIZE_BYTES, is_genuine_image, sanitize_image
 
@@ -296,6 +297,26 @@ async def get_model(model_id: int, db: Session = Depends(get_db)):
     if model is None:
         raise HTTPException(status_code=404, detail="Model not found.")
     return _serialize_model(model)
+
+
+@router.get("/network/stats")
+async def network_stats(
+    _hospital: Hospital = Depends(get_current_hospital),
+    db: Session = Depends(get_db),
+):
+    """Network-wide totals for the dashboard. Aggregates only: nothing here
+    identifies a hospital or discloses its individual dataset size."""
+    latest_round = db.query(FederatedRound).order_by(FederatedRound.id.desc()).first()
+    best_loss = db.query(func.min(FederatedRound.avg_loss)).scalar()
+    return {
+        "hospitals": db.query(func.count(Hospital.id)).scalar(),
+        "models": db.query(func.count(MLModel.id)).scalar(),
+        "images": db.query(func.coalesce(func.sum(Dataset.image_count), 0)).scalar(),
+        "rounds_recorded": db.query(func.count(FederatedRound.id)).scalar(),
+        "latest_round": latest_round.round_number if latest_round else None,
+        "latest_avg_loss": latest_round.avg_loss if latest_round else None,
+        "best_avg_loss": best_loss,
+    }
 
 
 @router.get("/hospitals")
