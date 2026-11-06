@@ -261,6 +261,18 @@ async def list_datasets(
     ]
 
 
+def _serialize_model(m: MLModel) -> dict:
+    return {
+        "id": m.id,
+        "model_name": m.model_name,
+        "version": m.version,
+        "accuracy": m.accuracy,
+        "description": m.description,
+        "hospital_count": m.hospital_count,
+        "created_at": m.created_at.isoformat() if m.created_at else None,
+    }
+
+
 @router.get("/models")
 async def list_models(
     db: Session = Depends(get_db),
@@ -274,18 +286,16 @@ async def list_models(
         .limit(limit)
         .all()
     )
-    return [
-        {
-            "id": m.id,
-            "model_name": m.model_name,
-            "version": m.version,
-            "accuracy": m.accuracy,
-            "description": m.description,
-            "hospital_count": m.hospital_count,
-            "created_at": m.created_at.isoformat() if m.created_at else None,
-        }
-        for m in models
-    ]
+    return [_serialize_model(m) for m in models]
+
+
+@router.get("/models/{model_id}")
+async def get_model(model_id: int, db: Session = Depends(get_db)):
+    """One marketplace model. Public, like the marketplace listing itself."""
+    model = db.get(MLModel, model_id)
+    if model is None:
+        raise HTTPException(status_code=404, detail="Model not found.")
+    return _serialize_model(model)
 
 
 @router.get("/hospitals")
