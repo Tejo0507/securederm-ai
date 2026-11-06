@@ -29,6 +29,65 @@ def _upload(client, headers, *colors):
     return client.post("/api/datasets/upload", headers=headers, files=parts)
 
 
+class TestDeleteImage:
+    def _names(self, client):
+        return [i["name"] for i in client.get("/api/datasets/images").json()["items"]]
+
+    def test_requires_auth_and_csrf(self, client):
+        assert client.delete(f"/api/datasets/images/{'a' * 32}.png").status_code == 401
+        sign_in(client, "del-csrf")
+        assert client.delete(f"/api/datasets/images/{'a' * 32}.png").status_code == 403
+
+    def test_deletes_one_image_and_updates_the_count(self, client):
+        headers, _ = sign_in(client, "del-one")
+        _upload(client, headers, (1, 2, 3), (4, 5, 6))
+        first, second = self._names(client)
+
+        resp = client.delete(f"/api/datasets/images/{first}", headers=headers)
+        assert resp.status_code == 200
+        assert resp.json() == {"deleted": first, "total_images": 1}
+        assert self._names(client) == [second]
+        assert client.get("/api/datasets").json()[0]["image_count"] == 1
+        assert client.get("/api/datasets/summary").json()["images"] == 1
+
+    def test_unknown_image_is_404(self, client):
+        headers, _ = sign_in(client, "del-missing")
+        resp = client.delete(f"/api/datasets/images/{'b' * 32}.png", headers=headers)
+        assert resp.status_code == 404
+
+    @pytest.mark.parametrize("name", [
+        "..%2F..%2Fsecret.png", "not-a-hash.png", f"{'a' * 32}.exe", f"{'A' * 32}.png",
+        f"{'a' * 31}.png", f"{'a' * 32}.png.png",
+    ])
+    def test_malformed_or_traversal_names_never_reach_the_disk(self, client, name):
+        headers, _ = sign_in(client, "del-bad")
+        resp = client.delete(f"/api/datasets/images/{name}", headers=headers)
+        assert resp.status_code in (404, 422)
+
+    def test_cannot_delete_another_hospitals_image(self, client):
+        headers, _ = sign_in(client, "del-owner")
+        _upload(client, headers, (7, 7, 7))
+        (name,) = self._names(client)
+
+        with TestClient(app, base_url="https://testserver") as other:
+            other_headers, _ = sign_in(other, "del-intruder")
+            resp = other.delete(f"/api/datasets/images/{name}", headers=other_headers)
+            assert resp.status_code == 404
+        assert self._names(client) == [name]
+
+    def test_is_audited(self, client):
+        from web_backend.audit import read_events
+
+        headers, _ = sign_in(client, "del-audit")
+        hospital_id = client.get("/api/auth/me").json()["id"]
+        _upload(client, headers, (8, 8, 8))
+        (name,) = self._names(client)
+        client.delete(f"/api/datasets/images/{name}", headers=headers)
+        event = read_events(hospital_id)[0]
+        assert event["action"] == "dataset_image_erased" and event["images"] == 1
+        assert name not in str(event)
+
+
 class TestListImages:
     def test_requires_auth(self, client):
         assert client.get("/api/datasets/images").status_code == 401

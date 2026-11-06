@@ -1,5 +1,6 @@
 import hashlib
 import os
+import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -202,6 +203,36 @@ async def list_dataset_images(
             for mtime, name, size in files[offset:offset + limit]
         ],
     }
+
+
+_STORED_IMAGE_NAME = re.compile(r"^[0-9a-f]{32}\.(jpg|png|bmp|tif|webp)$")
+
+
+@router.delete("/datasets/images/{name}")
+async def delete_dataset_image(
+    name: str,
+    request: Request,
+    hospital: Hospital = Depends(get_current_hospital),
+    db: Session = Depends(get_db),
+):
+    """Erase one stored image by the name `GET /datasets/images` reported."""
+    verify_csrf(request)
+    # Names are generated server-side (hash + extension), so anything else is
+    # either a typo or a path-traversal attempt and never reaches the filesystem.
+    if not _STORED_IMAGE_NAME.match(name):
+        raise HTTPException(status_code=422, detail="name: not a stored image name")
+    path = UPLOAD_DIR / str(hospital.id) / name
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Image not found.")
+    path.unlink()
+
+    remaining = sum(1 for p in path.parent.iterdir() if p.is_file())
+    dataset = db.query(Dataset).filter(Dataset.hospital_id == hospital.id).first()
+    if dataset:
+        dataset.image_count = remaining
+        db.commit()
+    audit("dataset_image_erased", hospital.id, images=1)
+    return {"deleted": name, "total_images": remaining}
 
 
 @router.get("/datasets")
