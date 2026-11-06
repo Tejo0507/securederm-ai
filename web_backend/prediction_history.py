@@ -8,6 +8,7 @@ platform ever keeping a patient image or a diagnosis tied to a person.
 import csv
 import io
 import logging
+from datetime import datetime, timezone
 
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
@@ -17,15 +18,31 @@ from web_backend.db_models import Prediction
 logger = logging.getLogger("web_backend.history")
 
 
+def to_naive_utc(value: datetime) -> datetime:
+    """created_at is stored as naive UTC, so compare like with like."""
+    if value.tzinfo is not None:
+        value = value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value
+
+
 def history_query(
     db: Session,
     hospital_id: int,
     label: str | None = None,
     unknown: bool | None = None,
     model_id: str | None = None,
+    since: datetime | None = None,
+    until: datetime | None = None,
 ):
-    """The hospital's own predictions, newest first, narrowed by the filters."""
+    """The hospital's own predictions, newest first, narrowed by the filters.
+
+    `since` is inclusive and `until` exclusive; a naive datetime is read as UTC.
+    """
     query = db.query(Prediction).filter(Prediction.hospital_id == hospital_id)
+    if since is not None:
+        query = query.filter(Prediction.created_at >= to_naive_utc(since))
+    if until is not None:
+        query = query.filter(Prediction.created_at < to_naive_utc(until))
     if label:
         query = query.filter(Prediction.predicted_class == label)
     if unknown is not None:
