@@ -166,13 +166,19 @@ registered, pass that node's token via `HOSPITAL_A_TOKEN` / `HOSPITAL_B_TOKEN`.
 |-----------------------|--------|--------------------------------|
 | `/node/register`      | POST   | Register a hospital node       |
 | `/training/update`    | POST   | Upload model weight updates    |
-| `/model/latest`       | GET    | Download latest global model (node or admin token) |
+| `/model/latest`       | GET    | Download latest global model with its SHA-256 (node or admin token) |
+| `/nodes`              | GET    | Enrolled hospitals and whether an update is waiting (admin token only) |
 | `/round/metrics`      | GET    | Per-round metrics (node or admin token) |
 | `/status`             | GET    | Server health check            |
 | `/metrics`            | GET    | Prometheus gauges (node or admin token) |
 
 Notes:
 
+- `/model/latest` includes `weights_sha256`, the SHA-256 of the raw weight
+  bytes. A hospital node verifies it and discards a download that does not
+  match; a node still works against an older aggregator that sends no digest.
+- `/nodes` needs `AGGREGATOR_ADMIN_TOKEN`: a node token is refused so one
+  hospital cannot learn who else is enrolled. Tokens are never listed.
 - `/metrics` exposes the model version, enrolled nodes, pending updates,
   completed rounds and the latest round's node count and average loss. It needs
   a token, sent as `X-Node-Token` or `Authorization: Bearer <token>`. A scrape
