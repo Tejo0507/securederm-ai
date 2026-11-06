@@ -62,7 +62,7 @@ pending_updates: list[dict] = []             # updates waiting for aggregation
 model_version: int = 0
 global_weights: OrderedDict | None = None
 round_metrics: list[dict] = []               # per-round metrics history
-_serialized_cache: tuple[int, str] | None = None   # (version, base64 payload)
+_serialized_cache: tuple[int, str, str] | None = None   # (version, base64 payload, sha256)
 _aggregation_lock = asyncio.Lock()   # serializes pending_updates / global model changes
 
 # Minimum nodes required before aggregation
@@ -190,6 +190,9 @@ class TrainingUpdateResponse(BaseModel):
 class ModelResponse(BaseModel):
     model_version: int
     weights_b64: str
+    # SHA-256 of the raw (decoded) weight bytes, so a node can detect a
+    # corrupted or tampered download before loading it.
+    weights_sha256: str | None = None
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
@@ -566,10 +569,14 @@ async def get_latest_model(x_node_token: str | None = Header(None, alias="X-Node
     # downloads the same version; cache the encoded payload per version.
     global _serialized_cache
     if _serialized_cache is None or _serialized_cache[0] != model_version:
-        _serialized_cache = (model_version, _serialize_weights(global_weights))
+        encoded = _serialize_weights(global_weights)
+        _serialized_cache = (
+            model_version, encoded, sha256_hex(base64.b64decode(encoded)),
+        )
     return ModelResponse(
         model_version=model_version,
         weights_b64=_serialized_cache[1],
+        weights_sha256=_serialized_cache[2],
     )
 
 
