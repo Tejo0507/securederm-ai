@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { apiDownload, apiFetch } from "@/lib/api";
+import HistoryTimeline from "@/components/dashboard/HistoryTimeline";
 import type { HistoryPage, HistorySummary } from "@/lib/types";
 
 const PAGE_SIZE = 20;
@@ -170,6 +171,8 @@ export default function HistoryTab() {
           </div>
         ))}
       </div>
+
+      {hasAnyHistory && <HistoryTimeline reloadKey={reloadKey} />}
 
       {summary && classes.length > 0 && (
         <div className="glass rounded-xl p-6">
