@@ -55,6 +55,17 @@ export interface HistorySummary {
   by_model: { model_id: string; count: number }[];
 }
 
+export interface TimelinePoint {
+  date: string; // YYYY-MM-DD (UTC)
+  total: number;
+  unknown: number;
+}
+
+export interface HistoryTimeline {
+  days: number;
+  series: TimelinePoint[];
+}
+
 export interface ModelInfo {
   available: boolean;
   model_id?: string;
