@@ -3,11 +3,13 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from config.settings import DEV_TOKEN_ECHO
 from web_backend.audit import audit, hash_identifier, read_events
+from web_backend.data_export import build_data_export
 from web_backend.database import get_db
 from web_backend.db_models import Dataset, Hospital, MLModel, Prediction
 from web_backend.email_service import send_verification_email
@@ -315,6 +317,20 @@ async def delete_account(
     audit("account_deleted", hospital_id)
     clear_session_cookies(response)
     return {"status": "account_deleted"}
+
+
+@router.get("/export")
+async def export_my_data(
+    hospital: Hospital = Depends(get_current_hospital),
+    db: Session = Depends(get_db),
+):
+    """Download a JSON copy of everything held about this account (profile,
+    dataset records, prediction history, activity). No credentials or images."""
+    audit("data_exported", hospital.id)
+    return JSONResponse(
+        content=build_data_export(db, hospital),
+        headers={"Content-Disposition": 'attachment; filename="securederm-my-data.json"'},
+    )
 
 
 @router.get("/activity")

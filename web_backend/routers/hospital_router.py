@@ -1,15 +1,17 @@
 import hashlib
 import os
+import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from web_backend.audit import audit
 from web_backend.database import get_db
-from web_backend.db_models import Hospital, Dataset, MLModel
+from web_backend.db_models import Hospital, Dataset, FederatedRound, MLModel
 from web_backend.auth import get_current_hospital, verify_csrf
 from web_backend.image_validation import MAX_FILE_SIZE_BYTES, is_genuine_image, sanitize_image
 
@@ -173,6 +175,67 @@ async def dataset_summary(hospital: Hospital = Depends(get_current_hospital)):
     }
 
 
+@router.get("/datasets/images")
+async def list_dataset_images(
+    hospital: Hospital = Depends(get_current_hospital),
+    limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
+):
+    """The images stored for this hospital, newest first: name, size and
+    upload time only (the pixels are never served back)."""
+    hospital_dir = UPLOAD_DIR / str(hospital.id)
+    files = []
+    if hospital_dir.is_dir():
+        for path in hospital_dir.iterdir():
+            if path.is_file():
+                info = path.stat()
+                files.append((info.st_mtime, path.name, info.st_size))
+    files.sort(reverse=True)
+    return {
+        "total": len(files),
+        "items": [
+            {
+                "name": name,
+                "size_bytes": size,
+                "uploaded_at": datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat(
+                    timespec="seconds"
+                ),
+            }
+            for mtime, name, size in files[offset:offset + limit]
+        ],
+    }
+
+
+_STORED_IMAGE_NAME = re.compile(r"^[0-9a-f]{32}\.(jpg|png|bmp|tif|webp)$")
+
+
+@router.delete("/datasets/images/{name}")
+async def delete_dataset_image(
+    name: str,
+    request: Request,
+    hospital: Hospital = Depends(get_current_hospital),
+    db: Session = Depends(get_db),
+):
+    """Erase one stored image by the name `GET /datasets/images` reported."""
+    verify_csrf(request)
+    # Names are generated server-side (hash + extension), so anything else is
+    # either a typo or a path-traversal attempt and never reaches the filesystem.
+    if not _STORED_IMAGE_NAME.match(name):
+        raise HTTPException(status_code=422, detail="name: not a stored image name")
+    path = UPLOAD_DIR / str(hospital.id) / name
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Image not found.")
+    path.unlink()
+
+    remaining = sum(1 for p in path.parent.iterdir() if p.is_file())
+    dataset = db.query(Dataset).filter(Dataset.hospital_id == hospital.id).first()
+    if dataset:
+        dataset.image_count = remaining
+        db.commit()
+    audit("dataset_image_erased", hospital.id, images=1)
+    return {"deleted": name, "total_images": remaining}
+
+
 @router.get("/datasets")
 async def list_datasets(
     hospital: Hospital = Depends(get_current_hospital),
@@ -199,6 +262,18 @@ async def list_datasets(
     ]
 
 
+def _serialize_model(m: MLModel) -> dict:
+    return {
+        "id": m.id,
+        "model_name": m.model_name,
+        "version": m.version,
+        "accuracy": m.accuracy,
+        "description": m.description,
+        "hospital_count": m.hospital_count,
+        "created_at": m.created_at.isoformat() if m.created_at else None,
+    }
+
+
 @router.get("/models")
 async def list_models(
     db: Session = Depends(get_db),
@@ -212,18 +287,36 @@ async def list_models(
         .limit(limit)
         .all()
     )
-    return [
-        {
-            "id": m.id,
-            "model_name": m.model_name,
-            "version": m.version,
-            "accuracy": m.accuracy,
-            "description": m.description,
-            "hospital_count": m.hospital_count,
-            "created_at": m.created_at.isoformat() if m.created_at else None,
-        }
-        for m in models
-    ]
+    return [_serialize_model(m) for m in models]
+
+
+@router.get("/models/{model_id}")
+async def get_model(model_id: int, db: Session = Depends(get_db)):
+    """One marketplace model. Public, like the marketplace listing itself."""
+    model = db.get(MLModel, model_id)
+    if model is None:
+        raise HTTPException(status_code=404, detail="Model not found.")
+    return _serialize_model(model)
+
+
+@router.get("/network/stats")
+async def network_stats(
+    _hospital: Hospital = Depends(get_current_hospital),
+    db: Session = Depends(get_db),
+):
+    """Network-wide totals for the dashboard. Aggregates only: nothing here
+    identifies a hospital or discloses its individual dataset size."""
+    latest_round = db.query(FederatedRound).order_by(FederatedRound.id.desc()).first()
+    best_loss = db.query(func.min(FederatedRound.avg_loss)).scalar()
+    return {
+        "hospitals": db.query(func.count(Hospital.id)).scalar(),
+        "models": db.query(func.count(MLModel.id)).scalar(),
+        "images": db.query(func.coalesce(func.sum(Dataset.image_count), 0)).scalar(),
+        "rounds_recorded": db.query(func.count(FederatedRound.id)).scalar(),
+        "latest_round": latest_round.round_number if latest_round else None,
+        "latest_avg_loss": latest_round.avg_loss if latest_round else None,
+        "best_avg_loss": best_loss,
+    }
 
 
 @router.get("/hospitals")
@@ -232,8 +325,20 @@ async def list_hospitals(
     db: Session = Depends(get_db),
     limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
     offset: int = Query(default=0, ge=0),
+    q: str | None = Query(
+        default=None, max_length=100, description="Case-insensitive match on name or location"
+    ),
 ):
-    hospitals = db.query(Hospital).order_by(Hospital.id).offset(offset).limit(limit).all()
+    query = db.query(Hospital)
+    if q and q.strip():
+        # Escape LIKE wildcards so a search for "100%" or "a_b" matches literally.
+        escaped = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
+        query = query.filter(
+            Hospital.name.ilike(pattern, escape="\\")
+            | Hospital.location.ilike(pattern, escape="\\")
+        )
+    hospitals = query.order_by(Hospital.id).offset(offset).limit(limit).all()
     return [
         {"id": h.id, "name": h.name, "location": h.location}
         for h in hospitals
