@@ -16,10 +16,26 @@ function formatUtc(ts: string | null): string {
   return new Date(hasZone ? ts : `${ts}Z`).toLocaleString();
 }
 
-function filterParams(label: string, unknown: UnknownFilter): URLSearchParams {
+/** The day after a YYYY-MM-DD date, because the API's `until` is exclusive. */
+function nextDay(date: string): string {
+  return new Date(Date.parse(`${date}T00:00:00Z`) + 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+}
+
+function filterParams(
+  label: string,
+  unknown: UnknownFilter,
+  from: string,
+  to: string,
+): URLSearchParams {
   const params = new URLSearchParams();
   if (label) params.set("label", label);
   if (unknown !== "all") params.set("unknown", String(unknown === "unknown"));
+  // Dates are UTC days, matching how the API stores timestamps; `to` is
+  // inclusive in the UI, so the exclusive API bound is the following day.
+  if (from) params.set("since", from);
+  if (to) params.set("until", nextDay(to));
   return params;
 }
 
@@ -32,6 +48,8 @@ export default function HistoryTab() {
   const [page, setPage] = useState<HistoryPage | null>(null);
   const [label, setLabel] = useState("");
   const [unknown, setUnknown] = useState<UnknownFilter>("all");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
   const [offset, setOffset] = useState(0);
   const [reloadKey, setReloadKey] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -46,9 +64,12 @@ export default function HistoryTab() {
     return () => controller.abort();
   }, [reloadKey]);
 
+  const rangeInvalid = from !== "" && to !== "" && from > to;
+
   useEffect(() => {
+    if (rangeInvalid) return;
     const controller = new AbortController();
-    const params = filterParams(label, unknown);
+    const params = filterParams(label, unknown, from, to);
     params.set("limit", String(PAGE_SIZE));
     params.set("offset", String(offset));
     setLoading(true);
@@ -62,13 +83,29 @@ export default function HistoryTab() {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [label, unknown, offset, reloadKey]);
+  }, [label, unknown, from, to, rangeInvalid, offset, reloadKey]);
+
+  async function deleteEntry(id: number) {
+    if (!window.confirm("Delete this entry from your history?")) return;
+    setBusy(true);
+    setError("");
+    try {
+      await apiFetch(`/api/predictions/${id}`, { method: "DELETE" });
+      // Step back a page if that was the last row of the current one.
+      if (items.length === 1 && offset > 0) setOffset(Math.max(0, offset - PAGE_SIZE));
+      setReloadKey((k) => k + 1);
+    } catch (err: unknown) {
+      setError(errorMessage(err, "Could not delete that entry."));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function exportCsv() {
     setBusy(true);
     setError("");
     try {
-      const query = filterParams(label, unknown).toString();
+      const query = filterParams(label, unknown, from, to).toString();
       await apiDownload(
         `/api/predictions/export${query ? `?${query}` : ""}`,
         "prediction-history.csv",
@@ -88,6 +125,8 @@ export default function HistoryTab() {
       await apiFetch("/api/predictions", { method: "DELETE" });
       setLabel("");
       setUnknown("all");
+      setFrom("");
+      setTo("");
       setOffset(0);
       setReloadKey((k) => k + 1);
     } catch (err: unknown) {
@@ -199,6 +238,37 @@ export default function HistoryTab() {
               <option value="recognized">Recognized</option>
               <option value="unknown">Flagged unknown</option>
             </select>
+            <label className="sr-only" htmlFor="history-from">
+              From date (UTC)
+            </label>
+            <input
+              id="history-from"
+              type="date"
+              value={from}
+              max={to || undefined}
+              onChange={(e) => {
+                setFrom(e.target.value);
+                setOffset(0);
+              }}
+              className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-zinc-300"
+            />
+            <span className="text-xs text-zinc-600" aria-hidden="true">
+              to
+            </span>
+            <label className="sr-only" htmlFor="history-to">
+              To date (UTC)
+            </label>
+            <input
+              id="history-to"
+              type="date"
+              value={to}
+              min={from || undefined}
+              onChange={(e) => {
+                setTo(e.target.value);
+                setOffset(0);
+              }}
+              className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-zinc-300"
+            />
             <button
               onClick={exportCsv}
               disabled={busy || !hasAnyHistory}
@@ -216,6 +286,11 @@ export default function HistoryTab() {
           </div>
         </div>
 
+        {rangeInvalid && (
+          <p className="text-sm text-amber-300 mb-3">
+            The start date is after the end date, so nothing can match.
+          </p>
+        )}
         {error && <p className="text-sm text-rose-400 mb-3">{error}</p>}
 
         {loading && !page ? (
@@ -236,7 +311,10 @@ export default function HistoryTab() {
                   <th className="py-2 pr-4 font-medium">Confidence</th>
                   <th className="py-2 pr-4 font-medium">Uncertainty</th>
                   <th className="py-2 pr-4 font-medium">Outcome</th>
-                  <th className="py-2 font-medium">Model</th>
+                  <th className="py-2 pr-4 font-medium">Model</th>
+                  <th className="py-2 font-medium">
+                    <span className="sr-only">Actions</span>
+                  </th>
                 </tr>
               </thead>
               <tbody className={loading ? "opacity-50" : ""}>
@@ -253,8 +331,18 @@ export default function HistoryTab() {
                         <span className="text-emerald-300">Recognized</span>
                       )}
                     </td>
-                    <td className="py-2 font-mono text-xs text-zinc-500">
+                    <td className="py-2 pr-4 font-mono text-xs text-zinc-500">
                       {row.model_id || "—"}
+                    </td>
+                    <td className="py-2 text-right">
+                      <button
+                        onClick={() => deleteEntry(row.id)}
+                        disabled={busy}
+                        aria-label={`Delete the ${row.predicted_class} entry from ${formatUtc(row.created_at)}`}
+                        className="text-xs text-zinc-500 hover:text-rose-300 disabled:opacity-40 transition-colors"
+                      >
+                        Delete
+                      </button>
                     </td>
                   </tr>
                 ))}
