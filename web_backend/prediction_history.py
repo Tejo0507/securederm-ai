@@ -33,12 +33,19 @@ def history_query(
     model_id: str | None = None,
     since: datetime | None = None,
     until: datetime | None = None,
+    min_confidence: float | None = None,
+    max_confidence: float | None = None,
 ):
     """The hospital's own predictions, newest first, narrowed by the filters.
 
     `since` is inclusive and `until` exclusive; a naive datetime is read as UTC.
+    The confidence bounds are inclusive.
     """
     query = db.query(Prediction).filter(Prediction.hospital_id == hospital_id)
+    if min_confidence is not None:
+        query = query.filter(Prediction.confidence >= min_confidence)
+    if max_confidence is not None:
+        query = query.filter(Prediction.confidence <= max_confidence)
     if since is not None:
         query = query.filter(Prediction.created_at >= to_naive_utc(since))
     if until is not None:
