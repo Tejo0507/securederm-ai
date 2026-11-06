@@ -747,6 +747,7 @@ function PredictTab() {
 function TrainingTab() {
   const [status, setStatus] = useState<TrainingStatus | null>(null);
   const [starting, setStarting] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const [error, setError] = useState("");
   const logsContainerRef = useRef<HTMLDivElement>(null);
 
@@ -792,6 +793,21 @@ function TrainingTab() {
     }
   }
 
+  async function stopTraining() {
+    if (!window.confirm("Stop the training run? Completed rounds are kept.")) return;
+    setStopping(true);
+    setError("");
+    try {
+      await apiFetch("/api/training/stop", { method: "POST" });
+      setTimeout(poll, 300);
+      setTimeout(poll, 1000);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Could not stop training.");
+    } finally {
+      setStopping(false);
+    }
+  }
+
   // Reset starting flag once polling shows active or has logs
   useEffect(() => {
     if (starting && (status?.active || (status?.logs && status.logs.length > 0))) {
@@ -809,17 +825,28 @@ function TrainingTab() {
       <div className="glass rounded-xl p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold">Federated Training</h3>
-          <button
-            onClick={startTraining}
-            disabled={starting || !!status?.active}
-            className="px-6 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-sm font-medium transition-all"
-          >
-            {starting
-              ? "Starting..."
-              : status?.active
-                ? `Round ${status.round}/${status.total_rounds}...`
-                : "Start Training"}
-          </button>
+          <div className="flex items-center gap-2">
+            {status?.active && (
+              <button
+                onClick={stopTraining}
+                disabled={stopping}
+                className="px-4 py-2 rounded-lg bg-rose-600/10 border border-rose-500/30 text-rose-300 hover:bg-rose-600/20 disabled:opacity-50 text-sm font-medium transition-colors"
+              >
+                {stopping ? "Stopping..." : "Stop"}
+              </button>
+            )}
+            <button
+              onClick={startTraining}
+              disabled={starting || !!status?.active}
+              className="px-6 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-sm font-medium transition-all"
+            >
+              {starting
+                ? "Starting..."
+                : status?.active
+                  ? `Round ${status.round}/${status.total_rounds}...`
+                  : "Start Training"}
+            </button>
+          </div>
         </div>
 
         {error && (
