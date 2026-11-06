@@ -1,6 +1,6 @@
 """Read access to a hospital's own prediction history."""
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
@@ -82,3 +82,41 @@ async def list_predictions(
         "total": query.count(),
         "items": [serialize_prediction(r) for r in query.offset(offset).limit(limit).all()],
     }
+
+
+def _own_prediction(db: Session, hospital_id: int, prediction_id: int) -> Prediction:
+    # The same 404 whether the row is missing or belongs to someone else, so
+    # ids cannot be probed to learn how much another hospital has predicted.
+    row = (
+        db.query(Prediction)
+        .filter(Prediction.id == prediction_id, Prediction.hospital_id == hospital_id)
+        .first()
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Prediction not found.")
+    return row
+
+
+@router.get("/predictions/{prediction_id}")
+async def get_prediction(
+    prediction_id: int,
+    hospital: Hospital = Depends(get_current_hospital),
+    db: Session = Depends(get_db),
+):
+    """One of this hospital's predictions."""
+    return serialize_prediction(_own_prediction(db, hospital.id, prediction_id))
+
+
+@router.delete("/predictions/{prediction_id}")
+async def delete_prediction(
+    prediction_id: int,
+    request: Request,
+    hospital: Hospital = Depends(get_current_hospital),
+    db: Session = Depends(get_db),
+):
+    """Erase a single prediction from this hospital's history."""
+    verify_csrf(request)
+    db.delete(_own_prediction(db, hospital.id, prediction_id))
+    db.commit()
+    audit("history_entry_erased", hospital.id)
+    return {"deleted_predictions": 1}
