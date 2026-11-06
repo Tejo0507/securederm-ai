@@ -248,6 +248,30 @@ async def health():
     return {"status": "ok", "service": "SecureDerm AI Platform"}
 
 
+@app.get("/api/health/ready")
+async def readiness():
+    """Whether this instance can do useful work, for load balancers and
+    orchestrators: 503 if the database is unreachable; 200 "degraded" when it
+    is up but no trained model is deployed (everything except diagnosis works)."""
+    try:
+        with engine.connect() as conn:
+            conn.exec_driver_sql("SELECT 1")
+    except Exception:
+        logger.exception("Readiness: database unreachable")
+        return JSONResponse(
+            status_code=503,
+            content={"status": "unavailable", "checks": {"database": "down"}},
+        )
+
+    from model.inference import model_info
+
+    model_ready = model_info()["available"]
+    return {
+        "status": "ready" if model_ready else "degraded",
+        "checks": {"database": "ok", "model": "ok" if model_ready else "missing"},
+    }
+
+
 if __name__ == "__main__":
     uvicorn.run(
         "web_backend.main:app",
