@@ -12,6 +12,7 @@ from web_backend.database import get_db
 from web_backend.db_models import Hospital, Prediction
 from web_backend.prediction_history import (
     MAX_EXPORT_ROWS,
+    daily_counts,
     history_query,
     history_to_csv,
     serialize_prediction,
@@ -62,6 +63,17 @@ async def predictions_summary(
     """Totals, unknown rate, average confidence and per-class / per-model
     counts across this hospital's whole history."""
     return summarize_history(db, hospital.id)
+
+
+@router.get("/predictions/timeline")
+async def predictions_timeline(
+    days: int = Query(default=30, ge=1, le=365),
+    hospital: Hospital = Depends(get_current_hospital),
+    db: Session = Depends(get_db),
+):
+    """Predictions per UTC day for the last `days` days (default 30), oldest
+    first, with empty days included as zeros."""
+    return {"days": days, "series": daily_counts(db, hospital.id, days)}
 
 
 @router.get("/predictions/export")

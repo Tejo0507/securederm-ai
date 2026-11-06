@@ -8,7 +8,7 @@ platform ever keeping a patient image or a diagnosis tied to a person.
 import csv
 import io
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
 
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
@@ -107,6 +107,36 @@ def summarize_history(db: Session, hospital_id: int) -> dict:
         "by_class": by_class,
         "by_model": by_model,
     }
+
+
+def daily_counts(
+    db: Session, hospital_id: int, days: int, today: date | None = None
+) -> list[dict]:
+    """Predictions per UTC day for the last `days` days ending today, oldest
+    first. Days with nothing are included as zeros so a chart has no gaps."""
+    today = today or datetime.now(timezone.utc).date()
+    first = today - timedelta(days=days - 1)
+    rows = (
+        db.query(
+            func.date(Prediction.created_at),
+            func.count(Prediction.id),
+            func.coalesce(func.sum(case((Prediction.is_unknown, 1), else_=0)), 0),
+        )
+        .filter(
+            Prediction.hospital_id == hospital_id,
+            Prediction.created_at >= datetime.combine(first, time.min),
+            Prediction.created_at < datetime.combine(today + timedelta(days=1), time.min),
+        )
+        .group_by(func.date(Prediction.created_at))
+        .all()
+    )
+    found = {day: (total, unknown) for day, total, unknown in rows}
+    series = []
+    for offset in range(days):
+        day = first + timedelta(days=offset)
+        total, unknown = found.get(day.isoformat(), (0, 0))
+        series.append({"date": day.isoformat(), "total": total, "unknown": unknown})
+    return series
 
 
 CSV_COLUMNS = ["id", "created_at", "model_id", "predicted_class", "confidence",
