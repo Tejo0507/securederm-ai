@@ -14,7 +14,7 @@
 
 [![CI](https://img.shields.io/github/actions/workflow/status/Tejo0507/securederm-ai/ci.yml?branch=main&style=for-the-badge&logo=githubactions&logoColor=white&label=CI)](https://github.com/Tejo0507/securederm-ai/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue?style=for-the-badge)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-290%20passing-brightgreen?style=for-the-badge&logo=pytest&logoColor=white)](#testing)
+[![Tests](https://img.shields.io/badge/tests-442%20passing-brightgreen?style=for-the-badge&logo=pytest&logoColor=white)](#testing)
 [![Security Audit](https://img.shields.io/badge/security-audited-critical?style=for-the-badge&logo=shieldsdotio&logoColor=white)](#security)
 [![CVEs](https://img.shields.io/badge/known%20CVEs-0-success?style=for-the-badge&logo=snyk&logoColor=white)](#security)
 
@@ -97,7 +97,7 @@ No hospital ever sees another hospital's data. Only gradients cross the wire, an
 | **Traceable models** | Each result carries the deployed checkpoint's fingerprint, also shown in the dashboard |
 | **Account controls** | Edit the hospital profile, change the password, or sign out of every device at once |
 | **Operational visibility** | Per-request correlation IDs in responses and logs, and a Prometheus `/metrics` endpoint on the aggregator |
-| **Real test coverage** | 290 automated tests across the model, aggregator, and web backend |
+| **Real test coverage** | 442 automated tests across the model, aggregator, and web backend |
 
 <br/>
 
@@ -183,16 +183,30 @@ All routes below live under `/api`, need a signed-in session cookie, and (for an
 | `POST /predict` | Classify one image |
 | `POST /predict/batch` | Classify up to 10 images; a bad file is reported in its own slot, the rest still run |
 | `GET /model/info` | Fingerprint, size and update time of the deployed model, plus its classes and unknown threshold |
-| `GET /predictions` | Your prediction history, newest first. Filters: `label`, `unknown`, `model_id`; paging: `limit`, `offset` |
+| `GET /predictions` | Your prediction history, newest first. Filters: `label`, `unknown`, `model_id`, `since`, `until`, `min_confidence`, `max_confidence`; paging: `limit`, `offset` |
+| `GET /predictions/{id}` | One history entry |
+| `DELETE /predictions/{id}` | Erase one history entry |
 | `GET /predictions/summary` | Totals, unknown rate, average confidence, counts per class and per model |
+| `GET /predictions/timeline` | Diagnoses per UTC day for the last `days` days (1 to 365), empty days included |
 | `GET /predictions/export` | The (filtered) history as a CSV download |
 | `DELETE /predictions` | Erase the whole history |
 | `GET /datasets/summary` | Stored image count, disk usage, formats and quota used |
+| `GET /datasets/images` | The stored images (name, size, upload time only), newest first |
+| `DELETE /datasets/images/{name}` | Erase one stored image |
+| `GET /hospitals?q=` | The hospital directory, optionally searched by name or location |
+| `GET /models/{id}` | One marketplace model |
+| `GET /network/stats` | Network-wide totals and federated round figures (aggregates only) |
+| `POST /training/stop` | Stop your running training simulation |
 | `GET /auth/activity` | Your audit trail. Filters: `action` (comma-separated), `since` (ISO-8601) |
+| `GET /auth/export` | Download a JSON copy of your profile, dataset records, history and activity |
 | `PATCH /auth/me` | Change the hospital name and/or location |
 | `POST /auth/logout-all` | End every session on the account |
 
-Inference is limited to `PREDICT_RATE_LIMIT_PER_MINUTE` images per account per minute (default 30, `0` disables); over the limit the API answers `429` with a `Retry-After` header. Every response carries an `X-Request-ID` that also appears in the server log lines for that request.
+Two unauthenticated endpoints suit load balancers: `GET /api/health` (liveness) and `GET /api/health/ready`, which answers `503` if the database is down and `200 "degraded"` when only the trained model is missing.
+
+Inference is limited to `PREDICT_RATE_LIMIT_PER_MINUTE` images per account per minute (default 30, `0` disables). Prediction responses carry `X-RateLimit-Limit` and `X-RateLimit-Remaining`; over the limit the API answers `429` with a `Retry-After` header. Every response carries an `X-Request-ID` that also appears in the server log lines for that request.
+
+To classify a whole folder from the command line, run `python -m scripts.predict_folder FOLDER -o results.csv` (add `-r` to include subfolders).
 
 <br/>
 
@@ -251,7 +265,7 @@ This project has been through a full security and data integrity audit. What tha
 
 <div align="center">
 
-[![Pytest](https://img.shields.io/badge/290%20tests-passing-brightgreen?style=for-the-badge&logo=pytest&logoColor=white)](#)
+[![Pytest](https://img.shields.io/badge/442%20tests-passing-brightgreen?style=for-the-badge&logo=pytest&logoColor=white)](#)
 
 </div>
 
