@@ -35,6 +35,7 @@ def _fresh_state() -> dict:
 # no auth dependency).
 _training_state: dict[int, dict] = {}
 _background_tasks: set[asyncio.Task] = set()
+_running: dict[int, asyncio.Task] = {}   # hospital_id -> its live simulation, for /training/stop
 
 
 def _roster(*names: str) -> str:
@@ -69,15 +70,35 @@ async def start_training(
     # one ourselves the simulation can be garbage-collected mid-run.
     task = asyncio.create_task(_simulate_training(hospital.id, hospital.name))
     _background_tasks.add(task)
+    _running[hospital.id] = task
     task.add_done_callback(_background_tasks.discard)
 
     return {"status": "started", "total_rounds": 5}
+
+
+@router.post("/training/stop")
+async def stop_training(
+    request: Request,
+    hospital: Hospital = Depends(get_current_hospital),
+):
+    """Stop this hospital's running simulation. A round is only recorded once
+    it completes, so stopping never leaves a half-written round behind."""
+    verify_csrf(request)
+    task = _running.get(hospital.id)
+    state = _state_for(hospital.id)
+    if task is None or task.done() or not state["active"]:
+        return {"status": "not_running"}
+    task.cancel()
+    return {"status": "stopping", "round": state["round"]}
 
 
 async def _simulate_training(hospital_id: int, hospital_name: str) -> None:
     state = _training_state[hospital_id]
     try:
         await _run_simulation(state, hospital_name)
+    except asyncio.CancelledError:
+        state["logs"].append("■ Training stopped.")
+        raise
     except Exception:
         logger.exception("Training simulation crashed for hospital_id=%s", hospital_id)
         state["logs"].append("✗ Training failed unexpectedly.")
@@ -85,6 +106,7 @@ async def _simulate_training(hospital_id: int, hospital_name: str) -> None:
         # Without this a crash mid-run leaves active=True forever, and
         # /training/start answers "already_running" until a restart.
         state["active"] = False
+        _running.pop(hospital_id, None)
 
 
 async def _run_simulation(state: dict, hospital_name: str) -> None:
