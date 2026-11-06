@@ -173,6 +173,37 @@ async def dataset_summary(hospital: Hospital = Depends(get_current_hospital)):
     }
 
 
+@router.get("/datasets/images")
+async def list_dataset_images(
+    hospital: Hospital = Depends(get_current_hospital),
+    limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
+):
+    """The images stored for this hospital, newest first: name, size and
+    upload time only (the pixels are never served back)."""
+    hospital_dir = UPLOAD_DIR / str(hospital.id)
+    files = []
+    if hospital_dir.is_dir():
+        for path in hospital_dir.iterdir():
+            if path.is_file():
+                info = path.stat()
+                files.append((info.st_mtime, path.name, info.st_size))
+    files.sort(reverse=True)
+    return {
+        "total": len(files),
+        "items": [
+            {
+                "name": name,
+                "size_bytes": size,
+                "uploaded_at": datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat(
+                    timespec="seconds"
+                ),
+            }
+            for mtime, name, size in files[offset:offset + limit]
+        ],
+    }
+
+
 @router.get("/datasets")
 async def list_datasets(
     hospital: Hospital = Depends(get_current_hospital),
