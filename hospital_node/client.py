@@ -125,6 +125,18 @@ class HospitalClient:
         try:
             data = resp.json()
             raw = base64.b64decode(data["weights_b64"])
+        except Exception as exc:
+            self.log.error("%s Received an unreadable model: %s", self.tag, exc)
+            return None
+
+        # Older aggregators send no digest; when one is present it must match,
+        # so a corrupted or tampered download is never loaded into training.
+        expected = data.get("weights_sha256")
+        if expected and hashlib.sha256(raw).hexdigest() != str(expected).lower():
+            self.log.error("%s Model download failed its integrity check; discarding it", self.tag)
+            return None
+
+        try:
             weights = torch.load(io.BytesIO(raw), map_location="cpu", weights_only=True)
         except Exception as exc:
             self.log.error("%s Received an unreadable model: %s", self.tag, exc)
