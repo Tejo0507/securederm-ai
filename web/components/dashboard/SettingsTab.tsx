@@ -3,7 +3,7 @@
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { apiFetch } from "@/lib/api";
+import { apiDownload, apiFetch } from "@/lib/api";
 import type { HospitalInfo } from "@/lib/types";
 
 interface Props {
@@ -212,6 +212,53 @@ function PasswordForm() {
   );
 }
 
+function DownloadMyData() {
+  const [working, setWorking] = useState(false);
+  const [message, setMessage] = useState("");
+  const [isError, setIsError] = useState(false);
+
+  async function download() {
+    setWorking(true);
+    setMessage("");
+    try {
+      await apiDownload("/api/auth/export", "securederm-my-data.json");
+      setIsError(false);
+      setMessage("Download started.");
+    } catch (err: unknown) {
+      setIsError(true);
+      setMessage(err instanceof Error ? err.message : "Could not export your data.");
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  return (
+    <div className="glass rounded-xl p-6 space-y-3">
+      <div>
+        <h3 className="font-semibold">Download my data</h3>
+        <p className="text-xs text-zinc-500 mt-1">
+          A JSON copy of your profile, dataset records, prediction history and account activity.
+          It never includes your password, session tokens or uploaded images.
+        </p>
+      </div>
+      <div className="flex items-center gap-4">
+        <button
+          onClick={download}
+          disabled={working}
+          className="px-4 py-2 text-sm rounded-lg bg-indigo-600/20 border border-indigo-500/30 text-indigo-300 hover:bg-indigo-600/30 disabled:opacity-40 transition-colors"
+        >
+          {working ? "Preparing…" : "Download JSON"}
+        </button>
+        {message && (
+          <span role="status" className={`text-sm ${isError ? "text-rose-400" : "text-emerald-400"}`}>
+            {message}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function SignOutEverywhere() {
   const router = useRouter();
   const [working, setWorking] = useState(false);
@@ -262,6 +309,7 @@ export default function SettingsTab(props: Props) {
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8 max-w-3xl">
       <ProfileForm {...props} />
       <PasswordForm />
+      <DownloadMyData />
       <SignOutEverywhere />
     </motion.div>
   );
