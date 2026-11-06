@@ -155,14 +155,17 @@ def enforce_auth_rate_limit(request: Request, bucket: str) -> None:
 
 def enforce_account_rate_limit(
     hospital_id: int, bucket: str, max_requests: int, window_seconds: int = 60, cost: int = 1
-) -> None:
+) -> int | None:
     """Sliding-window limit per signed-in account (rather than per IP), for
     endpoints that cost real CPU such as model inference. `cost` is how many
     units this call consumes (e.g. images in a batch); `max_requests` of 0
     disables the limit. Shares the in-memory table of the auth limiter, so it
-    has the same single-process caveat."""
+    has the same single-process caveat.
+
+    Returns how many units remain in the window after this call, or None when
+    the limit is disabled."""
     if max_requests <= 0:
-        return
+        return None
     if cost > max_requests:
         # No amount of waiting makes this fit, so a 429 with Retry-After would
         # send the caller into a loop that can never succeed. Nothing is recorded.
@@ -183,9 +186,14 @@ def enforce_account_rate_limit(
         raise HTTPException(
             status_code=429,
             detail="Too many requests. Please slow down and try again shortly.",
-            headers={"Retry-After": str(retry_after)},
+            headers={
+                "Retry-After": str(retry_after),
+                "X-RateLimit-Limit": str(max_requests),
+                "X-RateLimit-Remaining": str(max(0, max_requests - len(attempts))),
+            },
         )
     attempts.extend([now] * cost)
+    return max_requests - len(attempts)
 
 
 # OWASP's 2023 minimum for PBKDF2-HMAC-SHA256. The iteration count is

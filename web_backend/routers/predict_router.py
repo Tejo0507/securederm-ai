@@ -8,7 +8,7 @@ endpoint didn't exist. This wires it up.
 import io
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, UploadFile, File
 from PIL import Image
 from sqlalchemy.orm import Session
 
@@ -25,17 +25,27 @@ logger = logging.getLogger("web_backend.predict")
 router = APIRouter()
 
 
+def _expose_quota(response: Response, remaining: int | None) -> None:
+    """Tell the caller how much of the per-minute inference quota is left, so
+    a client can pace itself instead of discovering the limit by hitting it."""
+    if remaining is not None:
+        response.headers["X-RateLimit-Limit"] = str(PREDICT_RATE_LIMIT_PER_MINUTE)
+        response.headers["X-RateLimit-Remaining"] = str(remaining)
+
+
 @router.post("/predict")
 def predict_wound(  # sync def: FastAPI runs this in a worker thread, so a
     # slow CPU-bound PyTorch forward pass doesn't block the event loop
     # (and therefore every other in-flight request) while it runs.
     request: Request,
+    response: Response,
     file: UploadFile = File(...),
     hospital: Hospital = Depends(get_current_hospital),
     db: Session = Depends(get_db),
 ):
     verify_csrf(request)
-    enforce_account_rate_limit(hospital.id, "predict", PREDICT_RATE_LIMIT_PER_MINUTE)
+    _expose_quota(response, enforce_account_rate_limit(
+        hospital.id, "predict", PREDICT_RATE_LIMIT_PER_MINUTE))
 
     content = file.file.read(MAX_FILE_SIZE_BYTES + 1)
     if len(content) > MAX_FILE_SIZE_BYTES:
@@ -104,6 +114,7 @@ def model_status(_hospital: Hospital = Depends(get_current_hospital)):
 @router.post("/predict/batch")
 def predict_batch(
     request: Request,
+    response: Response,
     files: list[UploadFile] = File(...),
     hospital: Hospital = Depends(get_current_hospital),
     db: Session = Depends(get_db),
@@ -122,9 +133,8 @@ def predict_batch(
             status_code=413,
             detail=f"Too many images in one request (max {MAX_BATCH_IMAGES}).",
         )
-    enforce_account_rate_limit(
-        hospital.id, "predict", PREDICT_RATE_LIMIT_PER_MINUTE, cost=len(files)
-    )
+    _expose_quota(response, enforce_account_rate_limit(
+        hospital.id, "predict", PREDICT_RATE_LIMIT_PER_MINUTE, cost=len(files)))
 
     slots: list[dict] = [{} for _ in files]
     images: list[tuple[int, Image.Image]] = []
