@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import os
 import secrets
+import threading
 import time
 import json
 import base64
@@ -153,6 +154,9 @@ def enforce_auth_rate_limit(request: Request, bucket: str) -> None:
         _sweep_expired_rate_limit_entries(now)
 
 
+_account_limit_lock = threading.Lock()
+
+
 def enforce_account_rate_limit(
     hospital_id: int, bucket: str, max_requests: int, window_seconds: int = 60, cost: int = 1
 ) -> int | None:
@@ -178,22 +182,26 @@ def enforce_account_rate_limit(
         )
     key = f"{bucket}:account:{hospital_id}"
     now = time.time()
-    attempts = _auth_attempts[key]
-    while attempts and now - attempts[0] > window_seconds:
-        attempts.popleft()
-    if len(attempts) + cost > max_requests:
-        retry_after = max(1, int(window_seconds - (now - attempts[0])) + 1) if attempts else 1
-        raise HTTPException(
-            status_code=429,
-            detail="Too many requests. Please slow down and try again shortly.",
-            headers={
-                "Retry-After": str(retry_after),
-                "X-RateLimit-Limit": str(max_requests),
-                "X-RateLimit-Remaining": str(max(0, max_requests - len(attempts))),
-            },
-        )
-    attempts.extend([now] * cost)
-    return max_requests - len(attempts)
+    # Check and record must be one step: the prediction endpoints are sync
+    # handlers running in a thread pool, and without the lock concurrent
+    # requests all pass the check before any of them records its use.
+    with _account_limit_lock:
+        attempts = _auth_attempts[key]
+        while attempts and now - attempts[0] > window_seconds:
+            attempts.popleft()
+        if len(attempts) + cost > max_requests:
+            retry_after = max(1, int(window_seconds - (now - attempts[0])) + 1) if attempts else 1
+            raise HTTPException(
+                status_code=429,
+                detail="Too many requests. Please slow down and try again shortly.",
+                headers={
+                    "Retry-After": str(retry_after),
+                    "X-RateLimit-Limit": str(max_requests),
+                    "X-RateLimit-Remaining": str(max(0, max_requests - len(attempts))),
+                },
+            )
+        attempts.extend([now] * cost)
+        return max_requests - len(attempts)
 
 
 # OWASP's 2023 minimum for PBKDF2-HMAC-SHA256. The iteration count is
