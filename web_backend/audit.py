@@ -14,6 +14,7 @@ import hashlib
 import json
 import logging
 import os
+import threading
 from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -27,26 +28,39 @@ _BACKUPS = 5
 _logger = logging.getLogger("securederm.audit")
 _logger.setLevel(logging.INFO)
 _logger.propagate = False   # keep audit events out of the general application log
+_handler_lock = threading.Lock()
+
+
+def _has_handler_for(wanted: str) -> bool:
+    return any(
+        getattr(handler, "baseFilename", None) == os.path.abspath(wanted)
+        for handler in _logger.handlers
+    )
 
 
 def _ensure_handler() -> None:
     wanted = str(AUDIT_LOG_PATH)
-    for handler in _logger.handlers:
-        if getattr(handler, "baseFilename", None) == os.path.abspath(wanted):
+    if _has_handler_for(wanted):       # the common case: no lock needed
+        return
+    # Request handlers run in several threads. Without the lock two first-time
+    # callers both see "no handler" and both install one, and from then on every
+    # event is written twice.
+    with _handler_lock:
+        if _has_handler_for(wanted):
             return
-    for handler in list(_logger.handlers):
-        _logger.removeHandler(handler)
-        handler.close()
-    AUDIT_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    handler = RotatingFileHandler(
-        wanted, maxBytes=_MAX_BYTES, backupCount=_BACKUPS, encoding="utf-8"
-    )
-    handler.setFormatter(logging.Formatter("%(message)s"))
-    _logger.addHandler(handler)
-    try:
-        os.chmod(wanted, 0o600)   # no-op where POSIX modes don't apply
-    except OSError:
-        pass
+        for handler in list(_logger.handlers):
+            _logger.removeHandler(handler)
+            handler.close()
+        AUDIT_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        handler = RotatingFileHandler(
+            wanted, maxBytes=_MAX_BYTES, backupCount=_BACKUPS, encoding="utf-8"
+        )
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        _logger.addHandler(handler)
+        try:
+            os.chmod(wanted, 0o600)   # no-op where POSIX modes don't apply
+        except OSError:
+            pass
 
 
 def hash_identifier(value: str) -> str:
