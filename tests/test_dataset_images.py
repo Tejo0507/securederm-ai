@@ -64,6 +64,12 @@ class TestDeleteImage:
         resp = client.delete(f"/api/datasets/images/{name}", headers=headers)
         assert resp.status_code in (404, 422)
 
+    def test_a_trailing_newline_is_not_a_valid_name(self, client):
+        # `$` matches before a final newline, so a lax pattern would accept this.
+        headers, _ = sign_in(client, "del-newline")
+        resp = client.delete(f"/api/datasets/images/{'a' * 32}.png%0A", headers=headers)
+        assert resp.status_code == 422
+
     def test_cannot_delete_another_hospitals_image(self, client):
         headers, _ = sign_in(client, "del-owner")
         _upload(client, headers, (7, 7, 7))
