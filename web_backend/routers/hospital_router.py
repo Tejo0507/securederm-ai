@@ -4,12 +4,23 @@ import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Path as PathParam,   # `Path` is pathlib's in this module
+    Query,
+    Request,
+    UploadFile,
+)
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from web_backend.audit import audit
+from web_backend.limits import MAX_DB_INT, MAX_OFFSET
 from web_backend.database import get_db
 from web_backend.db_models import Hospital, Dataset, FederatedRound, MLModel
 from web_backend.auth import get_current_hospital, verify_csrf
@@ -179,7 +190,7 @@ async def dataset_summary(hospital: Hospital = Depends(get_current_hospital)):
 async def list_dataset_images(
     hospital: Hospital = Depends(get_current_hospital),
     limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
-    offset: int = Query(default=0, ge=0),
+    offset: int = Query(default=0, ge=0, le=MAX_OFFSET),
 ):
     """The images stored for this hospital, newest first: name, size and
     upload time only (the pixels are never served back)."""
@@ -241,7 +252,7 @@ async def list_datasets(
     hospital: Hospital = Depends(get_current_hospital),
     db: Session = Depends(get_db),
     limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
-    offset: int = Query(default=0, ge=0),
+    offset: int = Query(default=0, ge=0, le=MAX_OFFSET),
 ):
     datasets = (
         db.query(Dataset)
@@ -278,7 +289,7 @@ def _serialize_model(m: MLModel) -> dict:
 async def list_models(
     db: Session = Depends(get_db),
     limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
-    offset: int = Query(default=0, ge=0),
+    offset: int = Query(default=0, ge=0, le=MAX_OFFSET),
 ):
     models = (
         db.query(MLModel)
@@ -291,7 +302,9 @@ async def list_models(
 
 
 @router.get("/models/{model_id}")
-async def get_model(model_id: int, db: Session = Depends(get_db)):
+async def get_model(
+    model_id: Annotated[int, PathParam(ge=1, le=MAX_DB_INT)], db: Session = Depends(get_db)
+):
     """One marketplace model. Public, like the marketplace listing itself."""
     model = db.get(MLModel, model_id)
     if model is None:
@@ -324,7 +337,7 @@ async def list_hospitals(
     _hospital: Hospital = Depends(get_current_hospital),
     db: Session = Depends(get_db),
     limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
-    offset: int = Query(default=0, ge=0),
+    offset: int = Query(default=0, ge=0, le=MAX_OFFSET),
     q: str | None = Query(
         default=None, max_length=100, description="Case-insensitive match on name or location"
     ),
