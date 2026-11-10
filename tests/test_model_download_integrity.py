@@ -67,6 +67,68 @@ class TestAggregatorPublishesDigest:
             base64.b64decode(newer["weights_b64"])).hexdigest()
 
 
+class TestSerializationIsOffTheEventLoop:
+    def test_encoding_and_hashing_run_in_a_worker_thread(self, monkeypatch):
+        """Serialising ~45 MB of tensors and hashing them is seconds of CPU; on the
+        loop thread it would stall every node and the web console meanwhile."""
+        import asyncio
+
+        original = server_module._serialize_with_digest
+        seen = []
+
+        def _spy(state_dict):
+            try:
+                asyncio.get_running_loop()
+                seen.append("loop")
+            except RuntimeError:
+                seen.append("worker")
+            return original(state_dict)
+
+        monkeypatch.setattr(server_module, "_serialize_with_digest", _spy)
+        monkeypatch.setattr(server_module, "_serialized_cache", None)
+        with TestClient(app) as client:
+            token = client.post(
+                "/node/register",
+                json={"hospital_id": f"thread_{uuid.uuid4().hex[:8]}", "dataset_size": 5},
+            ).json()["node_token"]
+            assert client.get("/model/latest", headers={"X-Node-Token": token}).status_code == 200
+        assert seen == ["worker"]
+
+    def test_the_digest_is_computed_from_the_bytes_that_were_encoded(self):
+        weights = {"w": torch.arange(5.0)}
+        encoded, digest = server_module._serialize_with_digest(weights)
+        assert digest == hashlib.sha256(base64.b64decode(encoded)).hexdigest()
+        assert server_module._serialize_weights(weights) == encoded
+
+    def test_each_request_is_served_a_consistent_version_and_payload(self, monkeypatch):
+        """Version, payload and digest must come from the same snapshot even if the
+        global model changes while a (slow) serialisation is in flight."""
+        monkeypatch.setattr(server_module, "_serialized_cache", None)
+        monkeypatch.setattr(server_module, "model_version", 41)
+        monkeypatch.setattr(server_module, "global_weights", {"w": torch.zeros(2)})
+        original = server_module._serialize_with_digest
+
+        def _swap_model_mid_flight(state_dict):
+            result = original(state_dict)
+            server_module.model_version = 42
+            server_module.global_weights = {"w": torch.ones(2)}
+            return result
+
+        monkeypatch.setattr(server_module, "_serialize_with_digest", _swap_model_mid_flight)
+        with TestClient(app) as client:
+            token = client.post(
+                "/node/register",
+                json={"hospital_id": f"race_{uuid.uuid4().hex[:8]}", "dataset_size": 5},
+            ).json()["node_token"]
+            body = client.get("/model/latest", headers={"X-Node-Token": token}).json()
+
+        weights = torch.load(io.BytesIO(base64.b64decode(body["weights_b64"])), weights_only=True)
+        assert body["model_version"] == 41
+        assert torch.equal(weights["w"], torch.zeros(2))
+        assert body["weights_sha256"] == hashlib.sha256(
+            base64.b64decode(body["weights_b64"])).hexdigest()
+
+
 class TestNodeVerifiesDownload:
     def _node(self):
         node = client_module.HospitalClient("node_digest", dataset=[(torch.zeros(3, 4, 4), 0)])

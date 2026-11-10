@@ -196,11 +196,21 @@ class ModelResponse(BaseModel):
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
-def _serialize_weights(state_dict: OrderedDict) -> str:
-    """Serialize a state_dict to a base64 string."""
+def _serialize_with_digest(state_dict: OrderedDict) -> tuple[str, str]:
+    """Serialize a state_dict to (base64 string, SHA-256 of the raw bytes).
+
+    Hashing the bytes that were just produced avoids decoding the ~60 MB base64
+    payload again only to hash it. CPU-heavy: call it from a worker thread.
+    """
     buffer = io.BytesIO()
     torch.save(state_dict, buffer)
-    return base64.b64encode(buffer.getvalue()).decode("utf-8")
+    raw = buffer.getvalue()
+    return base64.b64encode(raw).decode("utf-8"), sha256_hex(raw)
+
+
+def _serialize_weights(state_dict: OrderedDict) -> str:
+    """Serialize a state_dict to a base64 string."""
+    return _serialize_with_digest(state_dict)[0]
 
 
 def _deserialize_weights(b64_string: str) -> OrderedDict:
@@ -568,15 +578,19 @@ async def get_latest_model(x_node_token: str | None = Header(None, alias="X-Node
     # Serializing ~45 MB of tensors per request is wasteful when every node
     # downloads the same version; cache the encoded payload per version.
     global _serialized_cache
-    if _serialized_cache is None or _serialized_cache[0] != model_version:
-        encoded = _serialize_weights(global_weights)
-        _serialized_cache = (
-            model_version, encoded, sha256_hex(base64.b64decode(encoded)),
-        )
+    # Snapshot the pair once: encoding runs in a worker thread, and a round that
+    # completes meanwhile must not mix one version's number with another's bytes.
+    version, weights = model_version, global_weights
+    cached = _serialized_cache
+    if cached is None or cached[0] != version:
+        encoded, digest = await run_in_threadpool(_serialize_with_digest, weights)
+        cached = (version, encoded, digest)
+        if _serialized_cache is None or _serialized_cache[0] <= version:
+            _serialized_cache = cached   # never replace a newer version's entry
     return ModelResponse(
-        model_version=model_version,
-        weights_b64=_serialized_cache[1],
-        weights_sha256=_serialized_cache[2],
+        model_version=cached[0],
+        weights_b64=cached[1],
+        weights_sha256=cached[2],
     )
 
 

@@ -47,5 +47,25 @@ def test_unavailable_when_the_database_is_down(client, checkpoints, monkeypatch)
     assert "db down" not in resp.text   # no internals leaked
 
 
+def test_the_blocking_model_check_runs_off_the_event_loop(client, monkeypatch):
+    """First use imports torch and hashes the checkpoint: done on the loop thread
+    that would freeze every other request while a probe waits."""
+    import asyncio
+
+    seen = {}
+
+    def _model_info():
+        try:
+            asyncio.get_running_loop()
+            seen["on_loop"] = True
+        except RuntimeError:
+            seen["on_loop"] = False
+        return {"available": True}
+
+    monkeypatch.setattr(inference, "model_info", _model_info)
+    assert client.get("/api/health/ready").status_code == 200
+    assert seen["on_loop"] is False
+
+
 def test_needs_no_authentication(client, checkpoints):
     assert client.get("/api/health/ready").status_code in (200, 503)
