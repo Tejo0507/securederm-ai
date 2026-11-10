@@ -44,7 +44,14 @@ def history_filters(
     max_confidence: float | None = Query(default=None, ge=0, le=1),
 ) -> dict:
     """The filters shared by the list and export endpoints."""
-    if since is not None and until is not None and to_naive_utc(since) > to_naive_utc(until):
+    bounds = {}
+    for name, value in (("since", since), ("until", until)):
+        try:
+            bounds[name] = to_naive_utc(value) if value is not None else None
+        except ValueError:
+            raise HTTPException(status_code=422, detail=f"{name}: date out of range")
+    since, until = bounds["since"], bounds["until"]
+    if since is not None and until is not None and since > until:
         raise HTTPException(status_code=422, detail="since: must not be after until")
     if (
         min_confidence is not None and max_confidence is not None

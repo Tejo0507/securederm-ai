@@ -53,6 +53,35 @@ class TestIdsBeyondTheDatabaseRange:
         assert client.get(f"/api/models/{MAX_DB_INT}").status_code == 404
 
 
+class TestDatesBeyondTheRepresentableRange:
+    @pytest.mark.parametrize("query", [
+        "since=0001-01-01T00:00:00%2B14:00",    # before year 1 once converted to UTC
+        "until=0001-01-01T00:00:00%2B14:00",
+        "since=9999-12-31T23:59:59-14:00",      # after year 9999 once converted to UTC
+        "until=9999-12-31T23:59:59-14:00",
+    ])
+    @pytest.mark.parametrize("path", ["/api/predictions", "/api/predictions/export"])
+    def test_unrepresentable_instants_are_a_422(self, client, signed_in, path, query):
+        resp = client.get(f"{path}?{query}")
+        assert resp.status_code == 422
+        assert "date out of range" in resp.json()["detail"]
+
+    @pytest.mark.parametrize("query", [
+        "since=0001-01-01", "until=9999-12-31", "since=0001-01-01T00:00:00Z",
+        "until=9999-12-31T23:59:59Z",
+    ])
+    def test_the_extremes_themselves_are_fine(self, client, signed_in, query):
+        assert client.get(f"/api/predictions?{query}").status_code == 200
+
+    def test_the_conversion_helper_reports_the_problem_as_a_value_error(self):
+        from datetime import datetime, timedelta, timezone
+
+        from web_backend.prediction_history import to_naive_utc
+
+        with pytest.raises(ValueError):
+            to_naive_utc(datetime(1, 1, 1, tzinfo=timezone(timedelta(hours=14))))
+
+
 class TestOffsetsBeyondTheDatabaseRange:
     @pytest.mark.parametrize("path", [
         "/api/predictions",
