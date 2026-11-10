@@ -65,6 +65,16 @@ export default function HistoryTab() {
     return () => controller.abort();
   }, [reloadKey]);
 
+  // A class with no entries left (say its last one was just deleted) must not
+  // stay selected: the dropdown would fall back to "All classes" while the table
+  // kept filtering on the vanished class and claimed nothing matched.
+  useEffect(() => {
+    if (label && summary && !(label in summary.by_class)) {
+      setLabel("");
+      setOffset(0);
+    }
+  }, [label, summary]);
+
   const rangeInvalid = from !== "" && to !== "" && from > to;
 
   useEffect(() => {
@@ -137,8 +147,10 @@ export default function HistoryTab() {
     }
   }
 
-  const total = page?.total ?? 0;
-  const items = page?.items ?? [];
+  // With an inverted range no request is made, so don't keep showing the last
+  // response's rows as if they matched it.
+  const total = rangeInvalid ? 0 : (page?.total ?? 0);
+  const items = rangeInvalid ? [] : (page?.items ?? []);
   const classes = summary ? Object.keys(summary.by_class) : [];
   const hasAnyHistory = (summary?.total ?? 0) > 0;
   const lastOffset = Math.max(0, Math.floor((total - 1) / PAGE_SIZE) * PAGE_SIZE);
@@ -274,7 +286,7 @@ export default function HistoryTab() {
             />
             <button
               onClick={exportCsv}
-              disabled={busy || !hasAnyHistory}
+              disabled={busy || !hasAnyHistory || rangeInvalid}
               className="px-3 py-1.5 text-sm rounded-lg bg-indigo-600/20 border border-indigo-500/30 text-indigo-300 hover:bg-indigo-600/30 disabled:opacity-40 transition-colors"
             >
               Export CSV
