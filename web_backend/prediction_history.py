@@ -19,9 +19,16 @@ logger = logging.getLogger("web_backend.history")
 
 
 def to_naive_utc(value: datetime) -> datetime:
-    """created_at is stored as naive UTC, so compare like with like."""
+    """created_at is stored as naive UTC, so compare like with like.
+
+    Raises ValueError when the instant cannot be represented in UTC, e.g.
+    0001-01-01T00:00:00+14:00 lies before year 1 once converted.
+    """
     if value.tzinfo is not None:
-        value = value.astimezone(timezone.utc).replace(tzinfo=None)
+        try:
+            value = value.astimezone(timezone.utc).replace(tzinfo=None)
+        except OverflowError as exc:
+            raise ValueError("date out of range") from exc
     return value
 
 
