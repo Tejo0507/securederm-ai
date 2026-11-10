@@ -193,7 +193,12 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=[REQUEST_ID_HEADER],
+    # Browsers hide every response header outside the safelist from cross-origin
+    # JavaScript unless it is listed here; the dashboard needs these to pace
+    # itself and to show "try again in N seconds".
+    expose_headers=[
+        REQUEST_ID_HEADER, "X-RateLimit-Limit", "X-RateLimit-Remaining", "Retry-After",
+    ],
 )
 
 
