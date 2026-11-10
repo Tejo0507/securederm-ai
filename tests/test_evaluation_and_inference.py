@@ -67,6 +67,43 @@ class TestModelTraceability:
         assert inference._checkpoint_id(a) != inference._checkpoint_id(b)
 
 
+class TestPredictorLoadsOnce:
+    def test_concurrent_first_requests_share_one_load(self, monkeypatch):
+        """Loading the checkpoint is ~45 MB of tensors and a hash of the file. If
+        every request that arrives before the first load finishes builds its own
+        predictor, a burst multiplies memory and time. A slow constructor makes
+        that interleaving certain."""
+        import threading
+        import time
+
+        built = []
+
+        class _SlowPredictor:
+            def __init__(self):
+                time.sleep(0.05)
+                built.append(self)
+
+        monkeypatch.setattr(inference, "WoundPredictor", _SlowPredictor)
+        monkeypatch.setattr(inference, "_predictor", None)
+        monkeypatch.setattr(inference, "_predictor_stamp", None)
+
+        got = []
+        barrier = threading.Barrier(8)
+
+        def _request():
+            barrier.wait()
+            got.append(inference.get_predictor())
+
+        threads = [threading.Thread(target=_request) for _ in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        assert len(built) == 1
+        assert all(p is built[0] for p in got)
+
+
 class TestPredictorReload:
     def test_checkpoint_change_triggers_reload(self, tmp_path, monkeypatch):
         import os

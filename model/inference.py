@@ -13,6 +13,7 @@ to a doctor rather than mislabeled with false confidence.
 
 import hashlib
 import math
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
@@ -191,6 +192,7 @@ class WoundPredictor:
 
 _predictor: WoundPredictor | None = None
 _predictor_stamp: tuple[int, int] | None = None   # (mtime_ns, size) of the loaded file
+_predictor_lock = threading.Lock()
 
 
 def _file_stamp(path) -> tuple[int, int] | None:
@@ -211,7 +213,13 @@ def get_predictor() -> WoundPredictor:
     global _predictor, _predictor_stamp
     path = CHECKPOINTS_DIR / "global_model.pt"
     stamp = _file_stamp(path)
-    if _predictor is None or stamp != _predictor_stamp:
-        _predictor = WoundPredictor()
-        _predictor_stamp = stamp
-    return _predictor
+    if _predictor is not None and stamp == _predictor_stamp:
+        return _predictor            # the common case: no lock needed
+    # Web handlers call this from several threads. Without the lock, every
+    # request that arrives before the first load finishes builds its own copy of
+    # the model, multiplying memory and load time during a burst.
+    with _predictor_lock:
+        if _predictor is None or stamp != _predictor_stamp:
+            _predictor = WoundPredictor()
+            _predictor_stamp = stamp
+        return _predictor
