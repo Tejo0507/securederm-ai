@@ -20,6 +20,7 @@ from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -268,9 +269,14 @@ async def readiness():
             content={"status": "unavailable", "checks": {"database": "down"}},
         )
 
-    from model.inference import model_info
+    # The first call imports torch and hashes the checkpoint; do that in a worker
+    # thread so a slow probe never stalls the event loop for everyone else.
+    def _model_available() -> bool:
+        from model.inference import model_info
 
-    model_ready = model_info()["available"]
+        return model_info()["available"]
+
+    model_ready = await run_in_threadpool(_model_available)
     return {
         "status": "ready" if model_ready else "degraded",
         "checks": {"database": "ok", "model": "ok" if model_ready else "missing"},
