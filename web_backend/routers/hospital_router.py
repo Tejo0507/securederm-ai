@@ -231,7 +231,7 @@ async def delete_dataset_image(
     verify_csrf(request)
     # Names are generated server-side (hash + extension), so anything else is
     # either a typo or a path-traversal attempt and never reaches the filesystem.
-    if not _STORED_IMAGE_NAME.match(name):
+    if not _STORED_IMAGE_NAME.fullmatch(name):
         raise HTTPException(status_code=422, detail="name: not a stored image name")
     path = UPLOAD_DIR / str(hospital.id) / name
     if not path.is_file():
