@@ -13,6 +13,7 @@ result are written, never any image data.
 
 import argparse
 import csv
+import os
 import sys
 from pathlib import Path
 
@@ -38,40 +39,56 @@ def _cell(value) -> str:
     return "'" + text if text[:1] in ("=", "+", "-", "@", "\t", "\r") else text
 
 
+def _write_rows(handle, folder: Path, paths: list[Path], predictor, batch_size: int) -> dict:
+    summary = {"images": len(paths), "classified": 0, "unknown": 0, "errors": 0}
+    writer = csv.writer(handle, lineterminator="\n")
+    writer.writerow(COLUMNS)
+
+    for start in range(0, len(paths), batch_size):
+        loaded: list[tuple[Path, Image.Image]] = []
+        for path in paths[start:start + batch_size]:
+            name = path.relative_to(folder).as_posix()
+            try:
+                with Image.open(path) as image:
+                    image.load()
+                    loaded.append((path, image.copy()))
+            except Exception as exc:
+                summary["errors"] += 1
+                writer.writerow([_cell(name), "", "", "", "", "", _cell(type(exc).__name__)])
+
+        if not loaded:
+            continue
+        results = predictor.predict_batch([image for _, image in loaded])
+        for (path, _), result in zip(loaded, results):
+            summary["classified"] += 1
+            summary["unknown"] += bool(result.is_unknown)
+            writer.writerow([
+                _cell(path.relative_to(folder).as_posix()), result.predicted_class,
+                result.confidence, result.uncertainty, result.is_unknown,
+                getattr(result, "model_id", ""), "",
+            ])
+    return summary
+
+
 def classify_folder(
     folder: Path, output: Path, predictor, recursive: bool = False, batch_size: int = 8,
 ) -> dict:
-    """Classify the folder's images and write `output`; returns a count summary."""
+    """Classify the folder's images and write `output`; returns a count summary.
+
+    Rows go to a temporary file that replaces `output` only once every batch has
+    succeeded, so a failure part-way never truncates an existing results file or
+    leaves a half-written one behind. Missing parent folders are created.
+    """
     paths = find_images(folder, recursive)
-    summary = {"images": len(paths), "classified": 0, "unknown": 0, "errors": 0}
-
-    with open(output, "w", newline="", encoding="utf-8") as handle:
-        writer = csv.writer(handle, lineterminator="\n")
-        writer.writerow(COLUMNS)
-
-        for start in range(0, len(paths), batch_size):
-            loaded: list[tuple[Path, Image.Image]] = []
-            for path in paths[start:start + batch_size]:
-                name = path.relative_to(folder).as_posix()
-                try:
-                    with Image.open(path) as image:
-                        image.load()
-                        loaded.append((path, image.copy()))
-                except Exception as exc:
-                    summary["errors"] += 1
-                    writer.writerow([_cell(name), "", "", "", "", "", _cell(type(exc).__name__)])
-
-            if not loaded:
-                continue
-            results = predictor.predict_batch([image for _, image in loaded])
-            for (path, _), result in zip(loaded, results):
-                summary["classified"] += 1
-                summary["unknown"] += bool(result.is_unknown)
-                writer.writerow([
-                    _cell(path.relative_to(folder).as_posix()), result.predicted_class,
-                    result.confidence, result.uncertainty, result.is_unknown,
-                    getattr(result, "model_id", ""), "",
-                ])
+    output.parent.mkdir(parents=True, exist_ok=True)
+    partial = output.with_name(output.name + ".partial")
+    try:
+        with open(partial, "w", newline="", encoding="utf-8") as handle:
+            summary = _write_rows(handle, folder, paths, predictor, batch_size)
+        os.replace(partial, output)
+    except BaseException:
+        partial.unlink(missing_ok=True)
+        raise
     return summary
 
 
@@ -98,9 +115,16 @@ def main(argv: list[str] | None = None) -> int:
         print(exc, file=sys.stderr)
         return 1
 
-    summary = classify_folder(
-        args.folder, args.output, predictor, args.recursive, args.batch_size
-    )
+    try:
+        summary = classify_folder(
+            args.folder, args.output, predictor, args.recursive, args.batch_size
+        )
+    except OSError as exc:
+        print(f"Cannot write {args.output}: {exc}", file=sys.stderr)
+        return 2
+    except Exception as exc:
+        print(f"Classification failed: {exc}", file=sys.stderr)
+        return 1
     print(
         f"{summary['images']} images: {summary['classified']} classified "
         f"({summary['unknown']} flagged unknown), {summary['errors']} unreadable "

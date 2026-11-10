@@ -123,6 +123,76 @@ class TestCommandLine:
         assert "1 images: 1 classified (0 flagged unknown), 0 unreadable" in capsys.readouterr().out
 
 
+class TestCommandLineFailures:
+    def _stub(self, monkeypatch, predictor=None):
+        monkeypatch.setattr("model.inference.WoundPredictor", lambda: predictor or FakePredictor())
+
+    def test_missing_output_folders_are_created(self, tmp_path, monkeypatch, capsys):
+        _image(tmp_path / "in" / "a.png")
+        self._stub(monkeypatch)
+        output = tmp_path / "reports" / "2026" / "out.csv"
+
+        assert predict_folder.main([str(tmp_path / "in"), "-o", str(output)]) == 0
+        assert len(_rows(output)) == 1
+
+    def test_an_output_path_that_is_a_directory_is_reported_not_a_traceback(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        _image(tmp_path / "in" / "a.png")
+        self._stub(monkeypatch)
+        target = tmp_path / "already-a-folder"
+        target.mkdir()
+
+        assert predict_folder.main([str(tmp_path / "in"), "-o", str(target)]) == 2
+        assert "Cannot write" in capsys.readouterr().err
+
+    def test_a_predictor_failure_is_reported_and_the_run_exits_nonzero(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        _image(tmp_path / "in" / "a.png")
+
+        class _Broken(FakePredictor):
+            def predict_batch(self, batch):
+                raise RuntimeError("out of memory")
+
+        self._stub(monkeypatch, _Broken())
+        assert predict_folder.main([str(tmp_path / "in"), "-o", str(tmp_path / "o.csv")]) == 1
+        assert "out of memory" in capsys.readouterr().err
+
+    def test_a_failed_run_does_not_leave_a_half_written_csv_behind(self, tmp_path, monkeypatch):
+        images = tmp_path / "in"
+        for n in range(3):
+            _image(images / f"{n}.png")
+
+        class _FailsOnSecondBatch(FakePredictor):
+            calls = 0
+
+            def predict_batch(self, batch):
+                type(self).calls += 1
+                if type(self).calls == 2:
+                    raise RuntimeError("boom")
+                return super().predict_batch(batch)
+
+        self._stub(monkeypatch, _FailsOnSecondBatch())
+        output = tmp_path / "o.csv"
+        code = predict_folder.main([str(images), "-o", str(output), "--batch-size", "2"])
+        assert code == 1
+        assert not output.exists()
+
+    def test_an_existing_csv_survives_a_failed_run(self, tmp_path, monkeypatch):
+        _image(tmp_path / "in" / "a.png")
+        output = tmp_path / "o.csv"
+        output.write_text("previous,results\n", encoding="utf-8")
+
+        class _Broken(FakePredictor):
+            def predict_batch(self, batch):
+                raise RuntimeError("boom")
+
+        self._stub(monkeypatch, _Broken())
+        assert predict_folder.main([str(tmp_path / "in"), "-o", str(output)]) == 1
+        assert output.read_text(encoding="utf-8") == "previous,results\n"
+
+
 @pytest.mark.skipif(
     not (pytest.importorskip("config.settings").CHECKPOINTS_DIR / "global_model.pt").exists(),
     reason="needs a trained checkpoint",
