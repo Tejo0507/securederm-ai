@@ -73,6 +73,24 @@ def test_no_headers_when_the_limit_is_disabled(client, monkeypatch):
     assert "x-ratelimit-remaining" not in resp.headers
 
 
+def test_browsers_may_read_the_quota_headers_cross_origin(client, monkeypatch):
+    use_predictor(monkeypatch)
+    monkeypatch.setattr(LIMIT_SETTING, 1)
+    headers, _ = sign_in(client, "quota-cors")
+    origin = {"Origin": "http://localhost:3000"}
+
+    ok = client.post("/api/predict", headers={**headers, **origin},
+                     files={"file": ("w.png", png_bytes(), "image/png")})
+    blocked = client.post("/api/predict", headers={**headers, **origin},
+                          files={"file": ("w.png", png_bytes(), "image/png")})
+
+    for response in (ok, blocked):
+        exposed = response.headers["access-control-expose-headers"].lower()
+        for name in ("x-ratelimit-limit", "x-ratelimit-remaining", "retry-after", "x-request-id"):
+            assert name in exposed
+    assert blocked.status_code == 429
+
+
 def test_limiter_return_value():
     auth_module._auth_attempts.clear()
     assert auth_module.enforce_account_rate_limit(1, "t", 5) == 4
