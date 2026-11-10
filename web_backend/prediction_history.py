@@ -10,7 +10,7 @@ import io
 import logging
 from datetime import date, datetime, time, timedelta, timezone
 
-from sqlalchemy import case, func
+from sqlalchemy import String, case, func, literal
 from sqlalchemy.orm import Session
 
 from web_backend.db_models import Prediction
@@ -30,6 +30,20 @@ def to_naive_utc(value: datetime) -> datetime:
         except OverflowError as exc:
             raise ValueError("date out of range") from exc
     return value
+
+
+def _stored_text(value: datetime):
+    """`value` as a SQL text literal in the format SQLite actually holds.
+
+    created_at is written two ways: by the column's server default (no
+    fractional seconds, "2026-03-01 00:00:00") and by the ORM (always six
+    digits, "2026-03-01 00:00:00.000000"). SQLite compares them as text, and the
+    shorter string sorts first, so binding a midnight bound with six digits
+    wrongly put a row stamped exactly midnight *before* it. Rendering the bound
+    without a fraction when it has none makes both stored forms compare right.
+    """
+    text = value.isoformat(sep=" ", timespec="microseconds" if value.microsecond else "seconds")
+    return literal(text, String)
 
 
 def history_query(
@@ -54,9 +68,9 @@ def history_query(
     if max_confidence is not None:
         query = query.filter(Prediction.confidence <= max_confidence)
     if since is not None:
-        query = query.filter(Prediction.created_at >= to_naive_utc(since))
+        query = query.filter(Prediction.created_at >= _stored_text(to_naive_utc(since)))
     if until is not None:
-        query = query.filter(Prediction.created_at < to_naive_utc(until))
+        query = query.filter(Prediction.created_at < _stored_text(to_naive_utc(until)))
     if label:
         query = query.filter(Prediction.predicted_class == label)
     if unknown is not None:
@@ -131,8 +145,9 @@ def daily_counts(
         )
         .filter(
             Prediction.hospital_id == hospital_id,
-            Prediction.created_at >= datetime.combine(first, time.min),
-            Prediction.created_at < datetime.combine(today + timedelta(days=1), time.min),
+            Prediction.created_at >= _stored_text(datetime.combine(first, time.min)),
+            Prediction.created_at
+            < _stored_text(datetime.combine(today + timedelta(days=1), time.min)),
         )
         .group_by(func.date(Prediction.created_at))
         .all()
