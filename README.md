@@ -14,7 +14,7 @@
 
 [![CI](https://img.shields.io/github/actions/workflow/status/Tejo0507/securederm-ai/ci.yml?branch=main&style=for-the-badge&logo=githubactions&logoColor=white&label=CI)](https://github.com/Tejo0507/securederm-ai/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue?style=for-the-badge)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-442%20passing-brightgreen?style=for-the-badge&logo=pytest&logoColor=white)](#testing)
+[![Tests](https://img.shields.io/badge/tests-496%20passing-brightgreen?style=for-the-badge&logo=pytest&logoColor=white)](#testing)
 [![Security Audit](https://img.shields.io/badge/security-audited-critical?style=for-the-badge&logo=shieldsdotio&logoColor=white)](#security)
 [![CVEs](https://img.shields.io/badge/known%20CVEs-0-success?style=for-the-badge&logo=snyk&logoColor=white)](#security)
 
@@ -97,7 +97,7 @@ No hospital ever sees another hospital's data. Only gradients cross the wire, an
 | **Traceable models** | Each result carries the deployed checkpoint's fingerprint, also shown in the dashboard |
 | **Account controls** | Edit the hospital profile, change the password, or sign out of every device at once |
 | **Operational visibility** | Per-request correlation IDs in responses and logs, and a Prometheus `/metrics` endpoint on the aggregator |
-| **Real test coverage** | 442 automated tests across the model, aggregator, and web backend |
+| **Real test coverage** | 496 automated tests across the model, aggregator, and web backend |
 
 <br/>
 
@@ -265,7 +265,7 @@ This project has been through a full security and data integrity audit. What tha
 
 <div align="center">
 
-[![Pytest](https://img.shields.io/badge/442%20tests-passing-brightgreen?style=for-the-badge&logo=pytest&logoColor=white)](#)
+[![Pytest](https://img.shields.io/badge/496%20tests-passing-brightgreen?style=for-the-badge&logo=pytest&logoColor=white)](#)
 
 </div>
 
