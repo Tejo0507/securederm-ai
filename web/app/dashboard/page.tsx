@@ -1,58 +1,50 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback, FormEvent, ChangeEvent } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { motion } from "framer-motion";
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from "recharts";
 import { apiFetch, ApiError } from "@/lib/api";
-import type { BatchPredictionResponse, HospitalInfo, PredictionResult } from "@/lib/types";
-import HistoryTab from "@/components/dashboard/HistoryTab";
-import TabBar, { panelId, tabId } from "@/components/dashboard/TabBar";
+import type { HospitalInfo } from "@/lib/types";
 import { expectSessionEnd, onSessionEnded, SESSION_ENDED_REDIRECT } from "@/lib/session";
-import { useConfirm } from "@/components/ConfirmProvider";
-import ModelInfoBanner from "@/components/dashboard/ModelInfoBanner";
+import { useIdleTimeout } from "@/lib/useIdleTimeout";
+import IdleWarning from "@/components/IdleWarning";
+import TabBar, { panelId, tabId, type TabDef } from "@/components/dashboard/TabBar";
+import OverviewTab from "@/components/dashboard/OverviewTab";
+import DataTab from "@/components/dashboard/DataTab";
+import PredictTab from "@/components/dashboard/PredictTab";
+import HistoryTab from "@/components/dashboard/HistoryTab";
+import TrainingTab from "@/components/dashboard/TrainingTab";
+import NetworkTab from "@/components/dashboard/NetworkTab";
 import SettingsTab from "@/components/dashboard/SettingsTab";
+import { TAB_KEYS, type Tab } from "@/components/dashboard/tabs";
+import Logo from "@/components/ui/Logo";
+import Spinner from "@/components/ui/Spinner";
+import {
+  IconDatabase,
+  IconHistory,
+  IconLock,
+  IconLogout,
+  IconNetwork,
+  IconOverview,
+  IconPulse,
+  IconScan,
+  IconSettings,
+} from "@/components/ui/icons";
 
-/* ------------------------------------------------------------------ */
-/*  Types                                                              */
-/* ------------------------------------------------------------------ */
-const TAB_KEYS = [
-  "overview", "data", "predict", "history", "training", "network", "settings",
-] as const;
-type Tab = (typeof TAB_KEYS)[number];
+// Minutes of inactivity before sign-out (0 turns it off). Override per deployment
+// with NEXT_PUBLIC_IDLE_TIMEOUT_MINUTES.
+const IDLE_MINUTES = Number(process.env.NEXT_PUBLIC_IDLE_TIMEOUT_MINUTES ?? 15);
+const IDLE_TIMEOUT_MS = Number.isFinite(IDLE_MINUTES) ? Math.max(0, IDLE_MINUTES) * 60_000 : 0;
 
-interface Metric {
-  round: number;
-  avg_loss: number;
-  nodes: number;
-}
+const TABS: TabDef<Tab>[] = [
+  { key: "overview", label: "Overview", icon: <IconOverview size={16} /> },
+  { key: "data", label: "Datasets", icon: <IconDatabase size={16} /> },
+  { key: "predict", label: "Diagnose", icon: <IconScan size={16} /> },
+  { key: "history", label: "History", icon: <IconHistory size={16} /> },
+  { key: "training", label: "Training", icon: <IconPulse size={16} /> },
+  { key: "network", label: "Network", icon: <IconNetwork size={16} /> },
+  { key: "settings", label: "Settings", icon: <IconSettings size={16} /> },
+];
 
-interface TrainingStatus {
-  active: boolean;
-  round: number;
-  total_rounds: number;
-  loss: number;
-  logs: string[];
-  metrics: Metric[];
-}
-
-const BATCH_MAX_IMAGES = 10; // mirrors MAX_BATCH_IMAGES in the backend
-const BATCH_MAX_BYTES = 24 * 1024 * 1024; // just under the backend's 25 MB request cap
-const UPLOAD_BATCH_MAX_FILES = 100;
-const UPLOAD_BATCH_MAX_BYTES = 20 * 1024 * 1024;
-
-/* ================================================================== */
-/*  DASHBOARD                                                          */
-/* ================================================================== */
 export default function DashboardPage() {
   const router = useRouter();
   const [tab, setTabState] = useState<Tab>("overview");
@@ -76,15 +68,15 @@ export default function DashboardPage() {
   }, []);
   const [hospital, setHospital] = useState<HospitalInfo | null>(null);
 
-  /* auth guard: session lives in an httpOnly cookie, so we can't just
-     check localStorage for a token — ask the backend who (if anyone)
-     the current cookie belongs to. */
+  /* Auth guard: the session lives in an httpOnly cookie, so we can't just
+     check localStorage for a token. Ask the backend who (if anyone) the
+     current cookie belongs to. */
   useEffect(() => {
     try {
       const stored = localStorage.getItem("hospital");
       if (stored) setHospital(JSON.parse(stored)); // optimistic first paint
     } catch {
-      // corrupt/blocked cache — fall through to the authoritative /me check
+      // corrupt/blocked cache: fall through to the authoritative /me check
       localStorage.removeItem("hospital");
     }
 
@@ -118,974 +110,132 @@ export default function DashboardPage() {
     [router],
   );
 
-  async function logout() {
+  async function endSession(destination: string) {
     expectSessionEnd();
     try {
       await apiFetch("/api/auth/logout", { method: "POST" });
     } catch {
       // even if the network call fails, still clear local state and leave
     }
-    localStorage.removeItem("hospital");
-    router.push("/");
+    try {
+      localStorage.removeItem("hospital");
+    } catch {
+      // storage blocked; nothing cached to clear
+    }
+    router.replace(destination);
   }
+  const logout = () => endSession("/");
 
-  if (!hospital) return null;
+  // Sign out an unattended workstation: patient data must not stay on screen.
+  const idle = useIdleTimeout(
+    hospital !== null && IDLE_TIMEOUT_MS > 0,
+    IDLE_TIMEOUT_MS,
+    Math.min(60_000, IDLE_TIMEOUT_MS / 2),
+    () => endSession("/login?reason=idle"),
+  );
 
-  const tabs: { key: Tab; label: string }[] = [
-    { key: "overview", label: "Overview" },
-    { key: "data", label: "Datasets" },
-    { key: "predict", label: "Predict" },
-    { key: "history", label: "History" },
-    { key: "training", label: "Training" },
-    { key: "network", label: "Network" },
-    { key: "settings", label: "Settings" },
-  ];
+  // Changing section from inside a tab (quick actions) should start at the top.
+  const goTo = useCallback(
+    (next: Tab) => {
+      setTab(next);
+      window.scrollTo({ top: 0 });
+    },
+    [setTab],
+  );
+
+  if (!hospital) {
+    return (
+      <div className="flex min-h-screen items-center justify-center" role="status">
+        <Spinner size={20} className="text-ink-3" />
+        <span className="sr-only">Loading your dashboard</span>
+      </div>
+    );
+  }
 
   function profileUpdated(updated: HospitalInfo) {
     setHospital(updated);
     localStorage.setItem("hospital", JSON.stringify(updated));
   }
 
+  const initials = hospital.name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase())
+    .join("");
+
   return (
     <div className="min-h-screen">
-      {/* top bar */}
-      <header className="border-b border-white/5 bg-[#09090b]/90 backdrop-blur-lg sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
-          <Link href="/" className="text-lg font-bold">
-            <span className="text-white">SecureDerm</span>
-            <span className="text-zinc-500 ml-1 text-sm">AI</span>
-          </Link>
-          <div className="flex items-center gap-4">
-            <span className="text-sm text-zinc-400">{hospital.name}</span>
+      <header className="sticky top-0 z-40 border-b border-line bg-surface/90 backdrop-blur-md">
+        <div className="mx-auto flex h-14 max-w-[1440px] items-center justify-between gap-4 px-4 sm:px-6">
+          <Logo href="/" />
+          <div className="flex min-w-0 items-center gap-1 sm:gap-3">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <span
+                aria-hidden="true"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line-strong bg-sunken font-mono text-[11px] font-medium text-ink"
+              >
+                {initials || "H"}
+              </span>
+              <div className="hidden min-w-0 leading-tight sm:block">
+                <p className="truncate text-[13px] font-medium text-ink">{hospital.name}</p>
+                {hospital.email && <p className="truncate text-xs text-ink-3">{hospital.email}</p>}
+              </div>
+            </div>
+            <span className="mx-1 hidden h-6 w-px bg-line sm:block" aria-hidden="true" />
             <button
+              type="button"
               onClick={logout}
-              className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+              className="inline-flex h-8 items-center gap-2 rounded px-2.5 text-[13px] font-medium text-ink-2 transition-colors hover:bg-ink/[0.06] hover:text-ink"
             >
-              Logout
+              <IconLogout size={16} />
+              <span className="hidden sm:inline">Sign out</span>
+              <span className="sr-only sm:hidden">Sign out</span>
             </button>
           </div>
         </div>
       </header>
 
-      <TabBar tabs={tabs} active={tab} onChange={setTab} />
+      <IdleWarning secondsLeft={idle.secondsLeft} onStay={idle.stay} onSignOut={() => endSession("/")} />
 
-      {/* content */}
-      <main
-        role="tabpanel"
-        id={panelId(tab)}
-        aria-labelledby={tabId(tab)}
-        tabIndex={-1}
-        className="max-w-7xl mx-auto px-6 py-8 focus:outline-none"
-      >
-        {tab === "overview" && <OverviewTab hospital={hospital} setTab={setTab} />}
-        {tab === "data" && <DataTab />}
-        {tab === "predict" && <PredictTab />}
-        {tab === "history" && <HistoryTab />}
-        {tab === "training" && <TrainingTab />}
-        {tab === "network" && <NetworkTab />}
-        {tab === "settings" && (
-          <SettingsTab hospital={hospital} onProfileUpdated={profileUpdated} />
-        )}
-      </main>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  OVERVIEW TAB                                                       */
-/* ------------------------------------------------------------------ */
-function OverviewTab({ hospital, setTab }: { hospital: HospitalInfo; setTab: (t: Tab) => void }) {
-  const [datasets, setDatasets] = useState<{ image_count: number }[]>([]);
-  const [models, setModels] = useState<unknown[]>([]);
-  const [hospitals, setHospitals] = useState<unknown[]>([]);
-
-  useEffect(() => {
-    apiFetch<typeof datasets>("/api/datasets").then(setDatasets).catch(() => {});
-    apiFetch<unknown[]>("/api/models").then(setModels).catch(() => {});
-    apiFetch<unknown[]>("/api/hospitals").then(setHospitals).catch(() => {});
-  }, []);
-
-  const [activity, setActivity] = useState<
-    { ts: string; action: string; images?: number; ip?: string }[]
-  >([]);
-  useEffect(() => {
-    apiFetch<typeof activity>("/api/auth/activity?limit=8")
-      .then(setActivity)
-      .catch(() => {});
-  }, []);
-
-  const totalImages = datasets.reduce(
-    (sum, d) => sum + (d.image_count || 0),
-    0,
-  );
-
-  const stats = [
-    { label: "Hospital", value: hospital.name },
-    { label: "Local Images", value: String(totalImages) },
-    { label: "Network Models", value: String(models.length) },
-    { label: "Network Hospitals", value: String(hospitals.length) },
-  ];
-
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      className="space-y-8"
-    >
-      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((s) => (
-          <div key={s.label} className="glass rounded-xl p-5">
-            <div className="text-xs text-zinc-500 uppercase tracking-wider">
-              {s.label}
-            </div>
-            <div className="mt-1 text-xl font-bold">{s.value}</div>
+      <div className="mx-auto max-w-[1440px] lg:grid lg:grid-cols-[232px_minmax(0,1fr)]">
+        <nav
+          aria-label="Dashboard"
+          className="sticky top-14 z-30 border-b border-line bg-canvas/90 backdrop-blur-md lg:h-[calc(100vh-3.5rem)] lg:border-b-0 lg:border-r lg:bg-transparent lg:px-4 lg:py-6 lg:backdrop-blur-none"
+        >
+          <p className="label-mono mb-3 hidden px-3 text-ink-3 lg:block">Workspace</p>
+          <TabBar tabs={TABS} active={tab} onChange={setTab} />
+          <div className="mt-8 hidden rounded-lg border border-line bg-surface p-4 lg:block">
+            <p className="flex items-center gap-2 text-[13px] font-medium text-ink">
+              <IconLock size={14} className="text-accent" />
+              Private node
+            </p>
+            <p className="mt-1.5 text-xs leading-relaxed text-ink-3">
+              Images you upload stay on this node. Only model updates join the network.
+              {IDLE_TIMEOUT_MS > 0 && ` Auto sign-out after ${IDLE_MINUTES} min idle.`}
+            </p>
           </div>
-        ))}
-      </div>
+        </nav>
 
-      <div className="glass rounded-xl p-6">
-        <h3 className="font-semibold mb-4">Quick Actions</h3>
-        <div className="flex flex-wrap gap-3">
-          <button
-            onClick={() => setTab("data")}
-            className="px-4 py-2 text-sm rounded-lg bg-indigo-600/20 border border-indigo-500/30 text-indigo-300 hover:bg-indigo-600/30 transition-colors"
-          >
-            Upload Dataset
-          </button>
-          <button
-            onClick={() => setTab("predict")}
-            className="px-4 py-2 text-sm rounded-lg bg-emerald-600/20 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-600/30 transition-colors"
-          >
-            Diagnose Wound
-          </button>
-          <button
-            onClick={() => setTab("training")}
-            className="px-4 py-2 text-sm rounded-lg bg-purple-600/20 border border-purple-500/30 text-purple-300 hover:bg-purple-600/30 transition-colors"
-          >
-            Start Training
-          </button>
-          <Link
-            href="/models"
-            className="px-4 py-2 text-sm rounded-lg bg-white/5 border border-white/10 text-zinc-300 hover:bg-white/10 transition-colors"
-          >
-            Browse Models
-          </Link>
-        </div>
-      </div>
-
-      {activity.length > 0 && (
-        <div className="glass rounded-xl p-6">
-          <h3 className="font-semibold mb-1">Recent account activity</h3>
-          <p className="text-xs text-zinc-500 mb-4">
-            Logins, uploads and deletions on your account. If you don&apos;t
-            recognise something, change your password.
-          </p>
-          <ul className="space-y-1.5 text-sm">
-            {activity.map((e, i) => (
-              <li key={`${e.ts}-${i}`} className="flex justify-between text-zinc-300">
-                <span>
-                  {e.action.replace(/_/g, " ")}
-                  {typeof e.images === "number" ? ` (${e.images} images)` : ""}
-                </span>
-                <span className="text-xs text-zinc-600">
-                  {new Date(e.ts).toLocaleString()}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </motion.div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  DATA TAB                                                           */
-/* ------------------------------------------------------------------ */
-function DataTab() {
-  const confirm = useConfirm();
-  const [datasets, setDatasets] = useState<
-    { id: number; name: string; image_count: number; created_at: string }[]
-  >([]);
-  const [uploading, setUploading] = useState(false);
-  const [msg, setMsg] = useState("");
-  const [msgIsError, setMsgIsError] = useState(false);
-  const router = useRouter();
-  const [erasing, setErasing] = useState(false);
-  const [deletePassword, setDeletePassword] = useState("");
-  const [deleting, setDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState("");
-
-  async function eraseData() {
-    const ok = await confirm({
-      title: "Delete all uploaded images?",
-      message:
-        "Every image you have uploaded is permanently removed from the server. This cannot be undone.",
-      confirmLabel: "Delete images",
-      danger: true,
-    });
-    if (!ok) return;
-    setErasing(true);
-    try {
-      const res = await apiFetch<{ deleted_images: number }>("/api/datasets", {
-        method: "DELETE",
-      });
-      setMsgIsError(false);
-      setMsg(`Deleted ${res.deleted_images} images`);
-      loadDatasets();
-    } catch (err: unknown) {
-      setMsgIsError(true);
-      setMsg(err instanceof Error ? err.message : "Could not delete images.");
-    } finally {
-      setErasing(false);
-    }
-  }
-
-  async function deleteAccount(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const ok = await confirm({
-      title: "Delete your account?",
-      message:
-        "Your account, uploaded images and prediction history are permanently erased, and every session is ended. This cannot be undone.",
-      confirmLabel: "Delete my account",
-      danger: true,
-    });
-    if (!ok) return;
-    setDeleting(true);
-    setDeleteError("");
-    try {
-      await apiFetch("/api/auth/account", {
-        method: "DELETE",
-        body: JSON.stringify({ password: deletePassword }),
-      });
-      expectSessionEnd();
-      localStorage.removeItem("hospital");
-      router.push("/");
-    } catch (err: unknown) {
-      setDeleteError(err instanceof Error ? err.message : "Could not delete account.");
-      setDeleting(false);
-    }
-  }
-
-  const loadDatasets = useCallback(() => {
-    apiFetch<typeof datasets>("/api/datasets").then(setDatasets).catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    loadDatasets();
-  }, [loadDatasets]);
-
-  async function handleUpload(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const form = e.currentTarget;
-    const input = form.querySelector<HTMLInputElement>('input[type="file"]');
-    if (!input?.files?.length) {
-      setMsgIsError(true);
-      setMsg("Please select image files first.");
-      return;
-    }
-
-    setUploading(true);
-    setMsg("");
-
-    // The backend caps a request at 100 files / 25 MB; send big selections
-    // as several requests instead of having the whole upload rejected.
-    const batches: File[][] = [];
-    let current: File[] = [];
-    let currentBytes = 0;
-    for (const f of Array.from(input.files)) {
-      if (
-        current.length > 0 &&
-        (current.length >= UPLOAD_BATCH_MAX_FILES ||
-          currentBytes + f.size > UPLOAD_BATCH_MAX_BYTES)
-      ) {
-        batches.push(current);
-        current = [];
-        currentBytes = 0;
-      }
-      current.push(f);
-      currentBytes += f.size;
-    }
-    if (current.length > 0) batches.push(current);
-
-    let uploaded = 0;
-    let totalImages = 0;
-    try {
-      for (const batch of batches) {
-        const fd = new FormData();
-        for (const f of batch) fd.append("files", f);
-        const data = await apiFetch<{ uploaded: number; total_images: number }>(
-          "/api/datasets/upload",
-          { method: "POST", body: fd },
-        );
-        uploaded += data.uploaded;
-        totalImages = data.total_images;
-      }
-      setMsgIsError(false);
-      setMsg(`Uploaded ${uploaded} images (${totalImages} total)`);
-      input.value = "";
-    } catch (err: unknown) {
-      setMsgIsError(true);
-      setMsg(
-        (uploaded > 0 ? `Uploaded ${uploaded} images before failing: ` : "") +
-          (err instanceof Error ? err.message : "Upload failed. Is the backend running?"),
-      );
-    } finally {
-      loadDatasets();
-      setUploading(false);
-    }
-  }
-
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      className="space-y-8"
-    >
-      {/* upload */}
-      <div className="glass rounded-xl p-6">
-        <h3 className="font-semibold mb-4">Upload Wound Images</h3>
-        <form onSubmit={handleUpload} className="flex flex-wrap gap-4 items-end">
-          <div className="flex-1 min-w-[200px]">
-            <input
-              type="file"
-              multiple
-              accept="image/*"
-              className="w-full text-sm text-zinc-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-indigo-600/20 file:text-indigo-300 hover:file:bg-indigo-600/30 file:cursor-pointer"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={uploading}
-            className="px-6 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-sm font-medium transition-all"
-          >
-            {uploading ? "Uploading..." : "Upload"}
-          </button>
-        </form>
-        {msg && (
-          <p className={`mt-3 text-sm ${
-            msgIsError ? "text-rose-400" : "text-emerald-400"
-          }`}>{msg}</p>
-        )}
-      </div>
-
-      {/* list */}
-      <div className="glass rounded-xl p-6">
-        <h3 className="font-semibold mb-4">Your Datasets</h3>
-        {datasets.length === 0 ? (
-          <p className="text-sm text-zinc-500">No datasets yet. Upload some images to get started.</p>
-        ) : (
-          <div className="space-y-3">
-            {datasets.map((d) => (
-              <div
-                key={d.id}
-                className="flex items-center justify-between bg-white/5 rounded-lg px-4 py-3"
-              >
-                <div>
-                  <div className="text-sm font-medium">{d.name}</div>
-                  <div className="text-xs text-zinc-500">
-                    {d.image_count} images
-                  </div>
-                </div>
-                <div className="text-xs text-zinc-600">
-                  {d.created_at
-                    ? new Date(d.created_at).toLocaleDateString()
-                    : ""}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-        {datasets.length > 0 && (
-          <button
-            onClick={eraseData}
-            disabled={erasing}
-            className="mt-4 text-xs text-rose-400 hover:text-rose-300 disabled:opacity-50 transition-colors"
-          >
-            {erasing ? "Deleting..." : "Delete all uploaded images"}
-          </button>
-        )}
-      </div>
-
-      {/* danger zone */}
-      <div className="glass rounded-xl p-6 border border-rose-500/20">
-        <h3 className="font-semibold mb-1 text-rose-300">Delete account</h3>
-        <p className="text-xs text-zinc-500 mb-4">
-          Permanently removes your hospital account and every uploaded image.
-          This cannot be undone.
-        </p>
-        <form onSubmit={deleteAccount} className="flex flex-wrap gap-3 items-end">
-          <div className="flex-1 min-w-[200px]">
-            <label htmlFor="delete-password" className="block text-xs text-zinc-500 mb-1">
-              Confirm with your password
-            </label>
-            <input
-              id="delete-password"
-              type="password"
-              autoComplete="current-password"
-              required
-              maxLength={200}
-              value={deletePassword}
-              onChange={(e) => setDeletePassword(e.target.value)}
-              className="w-full px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500/50"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={deleting || !deletePassword}
-            className="px-4 py-2 rounded-lg bg-rose-600/80 hover:bg-rose-600 disabled:opacity-50 text-sm font-medium transition-colors"
-          >
-            {deleting ? "Deleting..." : "Delete account"}
-          </button>
-        </form>
-        {deleteError && <p className="mt-3 text-sm text-rose-400">{deleteError}</p>}
-      </div>
-    </motion.div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  PREDICT TAB                                                        */
-/* ------------------------------------------------------------------ */
-function PredictTab() {
-  const [preview, setPreview] = useState<string | null>(null);
-  const [predicting, setPredicting] = useState(false);
-  const [result, setResult] = useState<PredictionResult | null>(null);
-  const [batch, setBatch] = useState<BatchPredictionResponse | null>(null);
-  // Names are kept client-side only, to label the rows of a batch result.
-  const [batchNames, setBatchNames] = useState<string[]>([]);
-  const [error, setError] = useState("");
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Release the last preview's blob URL when leaving the tab.
-  const previewRef = useRef<string | null>(null);
-  previewRef.current = preview;
-  useEffect(() => {
-    return () => {
-      if (previewRef.current) URL.revokeObjectURL(previewRef.current);
-    };
-  }, []);
-
-  function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
-    const files = e.target.files;
-    setResult(null);
-    setBatch(null);
-    setError("");
-    if (preview) URL.revokeObjectURL(preview);
-    // A preview only makes sense for a single image.
-    setPreview(files && files.length === 1 ? URL.createObjectURL(files[0]) : null);
-  }
-
-  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const files = Array.from(fileInputRef.current?.files ?? []);
-    if (files.length === 0) {
-      setError("Please select a wound image first.");
-      return;
-    }
-    if (files.length > BATCH_MAX_IMAGES) {
-      setError(`Select at most ${BATCH_MAX_IMAGES} images at a time.`);
-      return;
-    }
-    if (files.reduce((sum, f) => sum + f.size, 0) > BATCH_MAX_BYTES) {
-      setError("These images are too large to send together (24 MB limit). Select fewer.");
-      return;
-    }
-
-    setPredicting(true);
-    setError("");
-    setResult(null);
-    setBatch(null);
-
-    const fd = new FormData();
-    try {
-      if (files.length === 1) {
-        fd.append("file", files[0]);
-        setResult(
-          await apiFetch<PredictionResult>("/api/predict", { method: "POST", body: fd }),
-        );
-      } else {
-        files.forEach((f) => fd.append("files", f));
-        setBatchNames(files.map((f) => f.name));
-        setBatch(
-          await apiFetch<BatchPredictionResponse>("/api/predict/batch", {
-            method: "POST",
-            body: fd,
-          }),
-        );
-      }
-    } catch (err: unknown) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Prediction failed. Is a trained model available?",
-      );
-    } finally {
-      setPredicting(false);
-    }
-  }
-
-  const sortedProbabilities = result
-    ? Object.entries(result.class_probabilities).sort((a, b) => b[1] - a[1])
-    : [];
-
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      className="space-y-8"
-    >
-      <ModelInfoBanner />
-      <div className="glass rounded-xl p-6">
-        <h3 className="font-semibold mb-4">Diagnose a Wound Image</h3>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="flex flex-wrap gap-4 items-end">
-            <div className="flex-1 min-w-[200px]">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                multiple
-                aria-label={`Wound images (up to ${BATCH_MAX_IMAGES})`}
-                onChange={handleFileChange}
-                className="w-full text-sm text-zinc-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-emerald-600/20 file:text-emerald-300 hover:file:bg-emerald-600/30 file:cursor-pointer"
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={predicting}
-              className="px-6 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-sm font-medium transition-all"
-            >
-              {predicting ? "Analyzing..." : "Analyze"}
-            </button>
-          </div>
-
-          {preview && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={preview}
-              alt="Selected wound"
-              className="max-h-64 rounded-lg border border-white/10 object-contain"
-            />
-          )}
-
-          {error && (
-            <p className="text-sm text-rose-400">{error}</p>
-          )}
-          <p className="text-xs text-zinc-600">
-            Choose one image for a detailed result, or up to {BATCH_MAX_IMAGES} to classify
-            them together.
-          </p>
-        </form>
-      </div>
-
-      {batch && (
-        <div className="glass rounded-xl p-6">
-          <h3 className="font-semibold mb-1">Batch results</h3>
-          <p className="text-xs text-zinc-500 mb-4">
-            {batch.count} classified{batch.failed > 0 ? `, ${batch.failed} could not be read` : ""}.
-          </p>
-          <ul className="divide-y divide-white/5 text-sm">
-            {batch.results.map((slot) => (
-              <li key={slot.index} className="py-2 flex justify-between gap-4">
-                <span className="truncate text-zinc-400">
-                  {batchNames[slot.index] ?? `Image ${slot.index + 1}`}
-                </span>
-                {slot.error !== undefined ? (
-                  <span className="text-rose-400 shrink-0">{slot.error}</span>
-                ) : slot.is_unknown ? (
-                  <span className="text-amber-300 shrink-0">
-                    Unrecognized — refer ({(slot.confidence * 100).toFixed(0)}%)
-                  </span>
-                ) : (
-                  <span className="text-emerald-300 shrink-0">
-                    {slot.predicted_class} ({(slot.confidence * 100).toFixed(0)}%)
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {result && (
-        <div className="glass rounded-xl p-6 space-y-5">
+        <main id="main" className="min-w-0 px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
           <div
-            className={`rounded-lg px-4 py-3 border ${
-              result.is_unknown
-                ? "bg-amber-400/10 border-amber-400/30 text-amber-300"
-                : "bg-emerald-400/10 border-emerald-400/30 text-emerald-300"
-            }`}
+            key={tab}
+            role="tabpanel"
+            id={panelId(tab)}
+            aria-labelledby={tabId(tab)}
+            tabIndex={-1}
+            className="mx-auto max-w-6xl animate-fade-up focus:outline-none"
           >
-            <div className="text-sm font-medium">
-              {result.is_unknown ? "Unrecognized pattern" : result.predicted_class}
-            </div>
-            <div className="text-xs mt-1 opacity-80">{result.message}</div>
-            {result.model_id && (
-              <div className="text-xs mt-2 opacity-60">
-                Model <span className="font-mono">{result.model_id}</span>
-              </div>
-            )}
+            {tab === "overview" && <OverviewTab hospital={hospital} setTab={goTo} />}
+            {tab === "data" && <DataTab />}
+            {tab === "predict" && <PredictTab />}
+            {tab === "history" && <HistoryTab />}
+            {tab === "training" && <TrainingTab />}
+            {tab === "network" && <NetworkTab />}
+            {tab === "settings" && <SettingsTab hospital={hospital} onProfileUpdated={profileUpdated} />}
           </div>
-
-          {result.top_predictions && result.top_predictions.length > 0 && (
-            <div>
-              <h4 className="text-xs text-zinc-500 uppercase tracking-wider mb-2">
-                Most Likely Diagnoses
-              </h4>
-              <ol className="space-y-1 text-sm text-zinc-300">
-                {result.top_predictions.map((p, i) => (
-                  <li key={p.label} className="flex justify-between">
-                    <span>
-                      {i + 1}. {p.label}
-                    </span>
-                    <span className="text-zinc-500">
-                      {(p.probability * 100).toFixed(1)}%
-                    </span>
-                  </li>
-                ))}
-              </ol>
-              {typeof result.uncertainty === "number" && (
-                <p className="mt-2 text-xs text-zinc-600">
-                  Model uncertainty: {(result.uncertainty * 100).toFixed(0)}%
-                </p>
-              )}
-            </div>
-          )}
-
-          <div>
-            <h4 className="text-xs text-zinc-500 uppercase tracking-wider mb-3">
-              Class Probabilities
-            </h4>
-            <div className="space-y-2">
-              {sortedProbabilities.map(([className, prob]) => (
-                <div key={className}>
-                  <div className="flex justify-between text-xs text-zinc-400 mb-1">
-                    <span>{className}</span>
-                    <span>{(prob * 100).toFixed(1)}%</span>
-                  </div>
-                  <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full"
-                      style={{ width: `${prob * 100}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-    </motion.div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  TRAINING TAB                                                       */
-/* ------------------------------------------------------------------ */
-function TrainingTab() {
-  const confirm = useConfirm();
-  const [status, setStatus] = useState<TrainingStatus | null>(null);
-  const [starting, setStarting] = useState(false);
-  const [stopping, setStopping] = useState(false);
-  const [error, setError] = useState("");
-  const logsContainerRef = useRef<HTMLDivElement>(null);
-
-  const router = useRouter();
-
-  const poll = useCallback(() => {
-    // No point polling (or waking the server every 1.5 s) for a hidden tab.
-    if (document.hidden) return;
-    apiFetch<TrainingStatus>("/api/training/status")
-      .then(setStatus)
-      .catch((err: unknown) => {
-        // An expired session would otherwise be retried forever, silently.
-        if (err instanceof ApiError && err.status === 401) {
-          localStorage.removeItem("hospital");
-          router.push("/login");
-        }
-      });
-  }, [router]);
-
-  useEffect(() => {
-    poll();
-    const interval = setInterval(poll, 1500);
-    return () => clearInterval(interval);
-  }, [poll]);
-
-  // Auto-scroll only within the logs container, not the whole page
-  useEffect(() => {
-    const el = logsContainerRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [status?.logs]);
-
-  async function startTraining() {
-    setStarting(true);
-    setError("");
-    try {
-      await apiFetch("/api/training/start", { method: "POST" });
-      // Poll immediately so UI updates right away
-      setTimeout(poll, 300);
-      setTimeout(poll, 1000);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to start training. Is the backend running?");
-      setStarting(false);
-    }
-  }
-
-  async function stopTraining() {
-    const ok = await confirm({
-      title: "Stop the training run?",
-      message: "Rounds that already finished are kept. You can start a new run afterwards.",
-      confirmLabel: "Stop training",
-      danger: true,
-    });
-    if (!ok) return;
-    setStopping(true);
-    setError("");
-    try {
-      await apiFetch("/api/training/stop", { method: "POST" });
-      setTimeout(poll, 300);
-      setTimeout(poll, 1000);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Could not stop training.");
-    } finally {
-      setStopping(false);
-    }
-  }
-
-  // Reset starting flag once polling shows active or has logs
-  useEffect(() => {
-    if (starting && (status?.active || (status?.logs && status.logs.length > 0))) {
-      setStarting(false);
-    }
-  }, [starting, status?.active, status?.logs]);
-
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      className="space-y-8"
-    >
-      {/* control */}
-      <div className="glass rounded-xl p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold">Federated Training</h3>
-          <div className="flex items-center gap-2">
-            {status?.active && (
-              <button
-                onClick={stopTraining}
-                disabled={stopping}
-                className="px-4 py-2 rounded-lg bg-rose-600/10 border border-rose-500/30 text-rose-300 hover:bg-rose-600/20 disabled:opacity-50 text-sm font-medium transition-colors"
-              >
-                {stopping ? "Stopping..." : "Stop"}
-              </button>
-            )}
-            <button
-              onClick={startTraining}
-              disabled={starting || !!status?.active}
-              className="px-6 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-sm font-medium transition-all"
-            >
-              {starting
-                ? "Starting..."
-                : status?.active
-                  ? `Round ${status.round}/${status.total_rounds}...`
-                  : "Start Training"}
-            </button>
-          </div>
-        </div>
-
-        {error && (
-          <div className="text-sm text-rose-400 bg-rose-400/10 border border-rose-400/20 rounded-lg px-4 py-2 mb-4">
-            {error}
-          </div>
-        )}
-
-        {status && (status.active || starting) && (
-          <div className="space-y-2">
-            <div className="flex justify-between text-xs text-zinc-400">
-              <span>Progress</span>
-              <span>
-                {status.round}/{status.total_rounds}
-              </span>
-            </div>
-            <div className="h-2 bg-white/5 rounded-full overflow-hidden">
-              <motion.div
-                className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full"
-                animate={{
-                  width: `${(status.round / status.total_rounds) * 100}%`,
-                }}
-                transition={{ duration: 0.5 }}
-              />
-            </div>
-            <div className="text-xs text-zinc-500">
-              Current loss: {status.loss.toFixed(4)}
-            </div>
-          </div>
-        )}
+        </main>
       </div>
-
-      {/* chart */}
-      {status?.metrics && status.metrics.length > 0 && (
-        <div className="glass rounded-xl p-6">
-          <h3 className="font-semibold mb-4">Training Loss</h3>
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={status.metrics}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
-                <XAxis
-                  dataKey="round"
-                  stroke="#52525b"
-                  tick={{ fontSize: 12 }}
-                  label={{
-                    value: "Round",
-                    position: "insideBottom",
-                    offset: -4,
-                    fill: "#71717a",
-                    fontSize: 12,
-                  }}
-                />
-                <YAxis
-                  stroke="#52525b"
-                  tick={{ fontSize: 12 }}
-                  label={{
-                    value: "Loss",
-                    angle: -90,
-                    position: "insideLeft",
-                    fill: "#71717a",
-                    fontSize: 12,
-                  }}
-                />
-                <Tooltip
-                  contentStyle={{
-                    background: "#18181b",
-                    border: "1px solid #27272a",
-                    borderRadius: "8px",
-                    fontSize: "12px",
-                  }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="avg_loss"
-                  stroke="#6366f1"
-                  strokeWidth={2}
-                  dot={{ fill: "#6366f1", r: 4 }}
-                  activeDot={{ r: 6, fill: "#818cf8" }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      )}
-
-      {/* logs */}
-      {status?.logs && status.logs.length > 0 && (
-        <div className="glass rounded-xl p-6">
-          <h3 className="font-semibold mb-4">Training Logs</h3>
-          <div ref={logsContainerRef} className="bg-black/40 rounded-lg p-4 max-h-64 overflow-y-auto font-mono text-xs leading-relaxed">
-            {status.logs.map((log, i) => (
-              <div
-                key={i}
-                className={
-                  log.includes("Complete") || log.includes("complete")
-                    ? "text-emerald-400"
-                    : log.includes("uploading") || log.includes("merging")
-                      ? "text-indigo-400"
-                      : "text-zinc-400"
-                }
-              >
-                {log}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </motion.div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  NETWORK TAB                                                        */
-/* ------------------------------------------------------------------ */
-function NetworkTab() {
-  const [hospitals, setHospitals] = useState<HospitalInfo[]>([]);
-  const [rounds, setRounds] = useState<
-    {
-      round_number: number;
-      participating_hospitals: string;
-      avg_loss: number;
-      created_at: string;
-    }[]
-  >([]);
-
-  useEffect(() => {
-    apiFetch<HospitalInfo[]>("/api/hospitals").then(setHospitals).catch(() => {});
-    apiFetch<typeof rounds>("/api/federated/rounds").then(setRounds).catch(() => {});
-  }, []);
-
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      className="space-y-8"
-    >
-      {/* hospitals */}
-      <div className="glass rounded-xl p-6">
-        <h3 className="font-semibold mb-4">Network Hospitals</h3>
-        {hospitals.length === 0 ? (
-          <p className="text-sm text-zinc-500">No hospitals registered yet.</p>
-        ) : (
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {hospitals.map((h) => (
-              <div
-                key={h.id}
-                className="bg-white/5 rounded-lg px-4 py-3 flex items-center gap-3"
-              >
-                <div className="w-8 h-8 rounded-full bg-indigo-600/20 flex items-center justify-center text-xs font-bold text-indigo-300">
-                  {h.name.charAt(0)}
-                </div>
-                <div>
-                  <div className="text-sm font-medium">{h.name}</div>
-                  <div className="text-xs text-zinc-500">
-                    {h.location || "—"}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* rounds */}
-      <div className="glass rounded-xl p-6">
-        <h3 className="font-semibold mb-4">Federated Rounds</h3>
-        {rounds.length === 0 ? (
-          <p className="text-sm text-zinc-500">
-            No rounds yet. Start training to see results.
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {rounds.map((r) => (
-              <div
-                key={r.round_number + (r.created_at || "")}
-                className="flex items-center justify-between bg-white/5 rounded-lg px-4 py-3"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-purple-600/20 flex items-center justify-center text-xs font-bold text-purple-300">
-                    R{r.round_number}
-                  </div>
-                  <div className="text-sm text-zinc-400">
-                    {r.participating_hospitals}
-                  </div>
-                </div>
-                <div className="text-sm font-mono text-zinc-300">
-                  {r.avg_loss.toFixed(4)}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </motion.div>
+    </div>
   );
 }
