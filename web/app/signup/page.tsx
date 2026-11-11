@@ -5,8 +5,9 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { apiFetch } from "@/lib/api";
-
-const MIN_PASSWORD_LENGTH = 8;
+import { assessPassword, MIN_PASSWORD_LENGTH } from "@/lib/password";
+import PasswordStrength from "@/components/PasswordStrength";
+import { useCapsLock } from "@/lib/useCapsLock";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -28,13 +29,17 @@ export default function SignupPage() {
 
   const passwordsMismatch =
     form.confirmPassword.length > 0 && form.password !== form.confirmPassword;
+  // Details the password should not echo back.
+  const personal = [form.name, form.email.split("@")[0]];
+  const { capsLock, handlers: capsHandlers } = useCapsLock();
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError("");
 
-    if (form.password.length < MIN_PASSWORD_LENGTH) {
-      setError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
+    const strength = assessPassword(form.password, personal);
+    if (strength.blocked) {
+      setError(strength.advice || `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
       return;
     }
     if (form.password !== form.confirmPassword) {
@@ -170,6 +175,8 @@ export default function SignupPage() {
                 autoComplete="new-password"
                 value={form.password}
                 onChange={(e) => update("password", e.target.value)}
+                aria-describedby="signup-password-hint"
+                {...capsHandlers}
                 className="w-full px-4 py-2.5 pr-16 rounded-lg bg-white/5 border border-white/10 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all"
                 placeholder="••••••••"
               />
@@ -177,14 +184,24 @@ export default function SignupPage() {
                 type="button"
                 onClick={() => setShowPassword((s) => !s)}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
-                tabIndex={-1}
+                aria-label={showPassword ? "Hide passwords" : "Show passwords"}
+                aria-pressed={showPassword}
               >
                 {showPassword ? "Hide" : "Show"}
               </button>
             </div>
-            <p className="mt-1 text-xs text-zinc-600">
-              At least {MIN_PASSWORD_LENGTH} characters.
-            </p>
+            {capsLock && (
+              <p role="status" className="mt-1 text-xs text-amber-300">
+                Caps Lock is on.
+              </p>
+            )}
+            {form.password.length === 0 ? (
+              <p id="signup-password-hint" className="mt-1 text-xs text-zinc-600">
+                At least {MIN_PASSWORD_LENGTH} characters. A short phrase works well.
+              </p>
+            ) : (
+              <PasswordStrength id="signup-password-hint" password={form.password} personal={personal} />
+            )}
           </div>
 
           <div>
