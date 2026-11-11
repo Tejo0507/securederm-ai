@@ -3,9 +3,13 @@
 import { useEffect, useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { motion } from "framer-motion";
 import { apiFetch, ApiError } from "@/lib/api";
 import { useCapsLock } from "@/lib/useCapsLock";
+import AuthShell from "@/components/AuthShell";
+import Button from "@/components/ui/Button";
+import { Field, Input } from "@/components/ui/Field";
+import PasswordInput from "@/components/ui/PasswordInput";
+import Notice from "@/components/ui/Notice";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -20,9 +24,13 @@ export default function LoginPage() {
 
   // Sent here because the session ended (expired, or signed out elsewhere):
   // say so, rather than showing a bare login form with no explanation.
-  const [sessionEnded, setSessionEnded] = useState(false);
+  const [sessionEnded, setSessionEnded] = useState<string | null>(null);
   useEffect(() => {
-    setSessionEnded(new URLSearchParams(window.location.search).get("reason") === "expired");
+    const reason = new URLSearchParams(window.location.search).get("reason");
+    if (reason === "expired") setSessionEnded("Your session has ended. Please sign in again to continue.");
+    else if (reason === "idle") {
+      setSessionEnded("You were signed out after a period of inactivity. Please sign in again.");
+    }
   }, []);
 
   // Someone who already has a valid session shouldn't be asked to sign in again.
@@ -42,13 +50,10 @@ export default function LoginPage() {
     setNeedsVerification(false);
     setLoading(true);
     try {
-      const hospital = await apiFetch<{ id: number; name: string }>(
-        "/api/auth/login",
-        {
-          method: "POST",
-          body: JSON.stringify({ email, password }),
-        },
-      );
+      const hospital = await apiFetch<{ id: number; name: string }>("/api/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ email, password }),
+      });
       // Session lives in an httpOnly cookie now; this is just non-sensitive
       // display data cached for the dashboard's first paint.
       localStorage.setItem("hospital", JSON.stringify(hospital));
@@ -81,124 +86,83 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-6">
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        className="w-full max-w-md"
-      >
-        <div className="text-center mb-8">
-          <Link href="/" className="text-2xl font-bold">
-            <span className="text-white">SecureDerm</span>
-            <span className="text-zinc-500 ml-1">AI</span>
+    <AuthShell
+      title="Sign in"
+      subtitle="Access your hospital's node, datasets and diagnosis history."
+      footer={
+        <>
+          New to the network?{" "}
+          <Link href="/signup" className="font-medium text-accent-ink underline-offset-4 hover:underline">
+            Register your hospital
           </Link>
-          <p className="mt-2 text-sm text-zinc-500">
-            Sign in to your hospital account
-          </p>
-        </div>
-
-        <form
-          onSubmit={handleSubmit}
-          className="glass rounded-2xl p-8 space-y-5"
-        >
-          {sessionEnded && !error && (
-            <div
-              role="status"
-              className="text-sm text-amber-200 bg-amber-400/10 border border-amber-400/20 rounded-lg px-4 py-2"
-            >
-              Your session has ended. Please sign in again to continue.
-            </div>
-          )}
-          {error && (
-            <div
-              role="alert"
-              className="text-sm text-rose-400 bg-rose-400/10 border border-rose-400/20 rounded-lg px-4 py-2 space-y-2"
-            >
-              <p>{error}</p>
-              {needsVerification && (
-                <button
-                  type="button"
-                  onClick={handleResend}
-                  disabled={resendState !== "idle"}
-                  className="text-xs font-medium text-indigo-400 hover:text-indigo-300 disabled:opacity-50 transition-colors"
-                >
-                  {resendState === "sending"
-                    ? "Sending..."
-                    : resendState === "sent"
-                      ? "Verification email sent"
-                      : "Resend verification email"}
-                </button>
-              )}
-            </div>
-          )}
-
-          <div>
-            <label htmlFor="login-email" className="block text-sm text-zinc-400 mb-1.5">Email</label>
-            <input
-              id="login-email"
-              autoComplete="email"
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all"
-              placeholder="doctor@hospital.com"
-            />
-          </div>
-
-          <div>
-            <label htmlFor="login-password" className="block text-sm text-zinc-400 mb-1.5">
-              Password
-            </label>
-            <div className="relative">
-              <input
-                id="login-password"
-                autoComplete="current-password"
-                type={showPassword ? "text" : "password"}
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                {...capsHandlers}
-                className="w-full px-4 py-2.5 pr-16 rounded-lg bg-white/5 border border-white/10 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all"
-                placeholder="••••••••"
-              />
+        </>
+      }
+    >
+      <form onSubmit={handleSubmit} className="space-y-5" noValidate={false}>
+        {sessionEnded && !error && (
+          <Notice tone="warning" role="status">
+            {sessionEnded}
+          </Notice>
+        )}
+        {error && (
+          <Notice tone="danger" role="alert">
+            <p>{error}</p>
+            {needsVerification && (
               <button
                 type="button"
-                onClick={() => setShowPassword((s) => !s)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
-                aria-label={showPassword ? "Hide password" : "Show password"}
-                aria-pressed={showPassword}
+                onClick={handleResend}
+                disabled={resendState !== "idle"}
+                className="mt-1.5 font-medium underline underline-offset-4 disabled:no-underline disabled:opacity-70"
               >
-                {showPassword ? "Hide" : "Show"}
+                {resendState === "sending"
+                  ? "Sending..."
+                  : resendState === "sent"
+                    ? "Verification email sent"
+                    : "Resend verification email"}
               </button>
-            </div>
-            {capsLock && (
-              <p role="status" className="mt-1 text-xs text-amber-300">
-                Caps Lock is on.
-              </p>
             )}
-          </div>
+          </Notice>
+        )}
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-sm font-medium shadow-lg shadow-indigo-500/25 transition-all"
-          >
-            {loading ? "Signing in..." : "Sign In"}
-          </button>
+        <Field label="Work email" htmlFor="login-email">
+          <Input
+            id="login-email"
+            autoComplete="email"
+            type="email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="doctor@hospital.org"
+          />
+        </Field>
 
-          <p className="text-center text-sm text-zinc-500">
-            Don&apos;t have an account?{" "}
-            <Link
-              href="/signup"
-              className="text-indigo-400 hover:text-indigo-300 transition-colors"
-            >
-              Sign up
-            </Link>
-          </p>
-        </form>
-      </motion.div>
-    </div>
+        <Field
+          label="Password"
+          htmlFor="login-password"
+          hint={
+            capsLock ? (
+              <span role="status" className="text-warn-ink">
+                Caps Lock is on.
+              </span>
+            ) : undefined
+          }
+        >
+          <PasswordInput
+            id="login-password"
+            autoComplete="current-password"
+            required
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            visible={showPassword}
+            onToggle={() => setShowPassword((s) => !s)}
+            {...capsHandlers}
+          />
+        </Field>
+
+        <Button type="submit" size="lg" loading={loading} className="w-full">
+          {loading ? "Signing in..." : "Sign in"}
+        </Button>
+      </form>
+    </AuthShell>
   );
 }
