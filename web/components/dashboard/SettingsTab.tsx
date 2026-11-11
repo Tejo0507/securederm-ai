@@ -6,6 +6,8 @@ import { motion } from "framer-motion";
 import { apiDownload, apiFetch } from "@/lib/api";
 import { expectSessionEnd } from "@/lib/session";
 import { useConfirm } from "@/components/ConfirmProvider";
+import PasswordStrength from "@/components/PasswordStrength";
+import { assessPassword } from "@/lib/password";
 import type { HospitalInfo } from "@/lib/types";
 
 interface Props {
@@ -113,8 +115,9 @@ function endSessionLocally(router: ReturnType<typeof useRouter>) {
   router.push("/login");
 }
 
-function PasswordForm() {
+function PasswordForm({ hospital }: { hospital: HospitalInfo }) {
   const router = useRouter();
+  const personal = [hospital.name, (hospital.email ?? "").split("@")[0]];
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -124,6 +127,15 @@ function PasswordForm() {
   async function save(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError("");
+    const strength = assessPassword(next, personal);
+    if (strength.blocked) {
+      setError(strength.advice);
+      return;
+    }
+    if (current && next === current) {
+      setError("The new password must be different from the current one.");
+      return;
+    }
     if (next !== confirm) {
       setError("The new passwords don't match.");
       return;
@@ -178,8 +190,10 @@ function PasswordForm() {
             required
             minLength={8}
             autoComplete="new-password"
+            aria-describedby="pw-new-hint"
             className={inputClass}
           />
+          <PasswordStrength id="pw-new-hint" password={next} personal={personal} />
         </div>
         <div>
           <label htmlFor="pw-confirm" className="block text-xs text-zinc-500 mb-1">
@@ -319,7 +333,7 @@ export default function SettingsTab(props: Props) {
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8 max-w-3xl">
       <ProfileForm {...props} />
-      <PasswordForm />
+      <PasswordForm hospital={props.hospital} />
       <DownloadMyData />
       <SignOutEverywhere />
     </motion.div>
