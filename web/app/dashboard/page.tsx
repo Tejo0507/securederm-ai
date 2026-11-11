@@ -18,6 +18,7 @@ import type { BatchPredictionResponse, HospitalInfo, PredictionResult } from "@/
 import HistoryTab from "@/components/dashboard/HistoryTab";
 import TabBar, { panelId, tabId } from "@/components/dashboard/TabBar";
 import { expectSessionEnd, onSessionEnded, SESSION_ENDED_REDIRECT } from "@/lib/session";
+import { useConfirm } from "@/components/ConfirmProvider";
 import ModelInfoBanner from "@/components/dashboard/ModelInfoBanner";
 import SettingsTab from "@/components/dashboard/SettingsTab";
 
@@ -302,6 +303,7 @@ function OverviewTab({ hospital, setTab }: { hospital: HospitalInfo; setTab: (t:
 /*  DATA TAB                                                           */
 /* ------------------------------------------------------------------ */
 function DataTab() {
+  const confirm = useConfirm();
   const [datasets, setDatasets] = useState<
     { id: number; name: string; image_count: number; created_at: string }[]
   >([]);
@@ -315,7 +317,14 @@ function DataTab() {
   const [deleteError, setDeleteError] = useState("");
 
   async function eraseData() {
-    if (!window.confirm("Delete all uploaded images? This cannot be undone.")) return;
+    const ok = await confirm({
+      title: "Delete all uploaded images?",
+      message:
+        "Every image you have uploaded is permanently removed from the server. This cannot be undone.",
+      confirmLabel: "Delete images",
+      danger: true,
+    });
+    if (!ok) return;
     setErasing(true);
     try {
       const res = await apiFetch<{ deleted_images: number }>("/api/datasets", {
@@ -334,7 +343,14 @@ function DataTab() {
 
   async function deleteAccount(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (!window.confirm("Permanently delete your account and all data?")) return;
+    const ok = await confirm({
+      title: "Delete your account?",
+      message:
+        "Your account, uploaded images and prediction history are permanently erased, and every session is ended. This cannot be undone.",
+      confirmLabel: "Delete my account",
+      danger: true,
+    });
+    if (!ok) return;
     setDeleting(true);
     setDeleteError("");
     try {
@@ -768,6 +784,7 @@ function PredictTab() {
 /*  TRAINING TAB                                                       */
 /* ------------------------------------------------------------------ */
 function TrainingTab() {
+  const confirm = useConfirm();
   const [status, setStatus] = useState<TrainingStatus | null>(null);
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
@@ -817,7 +834,13 @@ function TrainingTab() {
   }
 
   async function stopTraining() {
-    if (!window.confirm("Stop the training run? Completed rounds are kept.")) return;
+    const ok = await confirm({
+      title: "Stop the training run?",
+      message: "Rounds that already finished are kept. You can start a new run afterwards.",
+      confirmLabel: "Stop training",
+      danger: true,
+    });
+    if (!ok) return;
     setStopping(true);
     setError("");
     try {

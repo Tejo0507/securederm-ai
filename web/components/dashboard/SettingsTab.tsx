@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { apiDownload, apiFetch } from "@/lib/api";
 import { expectSessionEnd } from "@/lib/session";
+import { useConfirm } from "@/components/ConfirmProvider";
 import type { HospitalInfo } from "@/lib/types";
 
 interface Props {
@@ -262,12 +263,20 @@ function DownloadMyData() {
 }
 
 function SignOutEverywhere() {
+  const confirm = useConfirm();
   const router = useRouter();
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
 
   async function signOutEverywhere() {
-    if (!window.confirm("Sign out of every device, including this one?")) return;
+    const ok = await confirm({
+      title: "Sign out of every device?",
+      message:
+        "All active sessions on this account end, including this one. You can sign straight back in.",
+      confirmLabel: "Sign out everywhere",
+      danger: true,
+    });
+    if (!ok) return;
     setWorking(true);
     setError("");
     try {
