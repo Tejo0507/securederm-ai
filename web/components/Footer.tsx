@@ -1,27 +1,56 @@
 import Link from "next/link";
+import Logo from "@/components/ui/Logo";
+
+const COLUMNS = [
+  {
+    title: "Product",
+    links: [
+      { href: "/#how-it-works", label: "How it works" },
+      { href: "/#privacy", label: "Privacy model" },
+      { href: "/models", label: "Models" },
+      { href: "/demo", label: "Live simulation" },
+    ],
+  },
+  {
+    title: "Account",
+    links: [
+      { href: "/signup", label: "Register a hospital" },
+      { href: "/login", label: "Sign in" },
+      { href: "/dashboard", label: "Dashboard" },
+    ],
+  },
+];
 
 export default function Footer() {
   return (
-    <footer className="border-t border-white/5 py-12 px-6">
-      <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-white">
-            SecureDerm AI
-          </span>
-          <span className="text-xs text-zinc-600">
-            &copy; {new Date().getFullYear()}
-          </span>
+    <footer className="border-t border-line bg-canvas">
+      <div className="mx-auto grid max-w-6xl gap-10 px-4 py-12 sm:px-6 md:grid-cols-[1.4fr_1fr_1fr]">
+        <div className="max-w-xs">
+          <Logo />
+          <p className="mt-4 text-sm leading-relaxed text-ink-2">
+            Federated wound classification for hospital networks. Models travel between sites; patient
+            images stay where they were taken.
+          </p>
         </div>
-        <div className="flex items-center gap-6 text-sm text-zinc-500">
-          <Link href="/models" className="hover:text-zinc-300 transition-colors">
-            Models
-          </Link>
-          <Link href="/demo" className="hover:text-zinc-300 transition-colors">
-            Demo
-          </Link>
-          <Link href="/dashboard" className="hover:text-zinc-300 transition-colors">
-            Dashboard
-          </Link>
+        {COLUMNS.map((col) => (
+          <nav key={col.title} aria-label={col.title}>
+            <p className="label-mono text-ink-3">{col.title}</p>
+            <ul className="mt-4 space-y-2.5">
+              {col.links.map((l) => (
+                <li key={l.href}>
+                  <Link href={l.href} className="text-sm text-ink-2 transition-colors hover:text-ink">
+                    {l.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        ))}
+      </div>
+      <div className="border-t border-line">
+        <div className="mx-auto flex max-w-6xl flex-col gap-2 px-4 py-5 text-xs text-ink-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <span>&copy; {new Date().getFullYear()} SecureDerm AI</span>
+          <span className="font-mono">FedAvg · ResNet-18 · ε-differential privacy</span>
         </div>
       </div>
     </footer>

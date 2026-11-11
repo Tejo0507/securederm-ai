@@ -1,10 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { motion } from "framer-motion";
+import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import PageIntro from "@/components/marketing/PageIntro";
 import { apiFetch } from "@/lib/api";
+import Badge from "@/components/ui/Badge";
+import Button, { buttonClass } from "@/components/ui/Button";
+import EmptyState from "@/components/ui/EmptyState";
+import { IconAlert, IconChip, IconHospital } from "@/components/ui/icons";
 
 interface Model {
   id: number;
@@ -22,101 +27,129 @@ export default function ModelsPage() {
   const [error, setError] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(() => {
+    setLoading(true);
+    setError(false);
     apiFetch<Model[]>("/api/models")
       .then(setModels)
       .catch(() => setError(true))
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(load, [load]);
+
   return (
     <>
       <Navbar />
-      <main className="min-h-screen pt-24 pb-20 px-6">
-        <div className="max-w-6xl mx-auto">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="text-center mb-12"
-          >
-            <span className="text-sm font-medium text-indigo-400 uppercase tracking-widest">
-              Model Marketplace
-            </span>
-            <h1 className="mt-3 text-3xl sm:text-4xl font-bold">
-              Federated Models
-            </h1>
-            <p className="mt-2 text-zinc-400 max-w-lg mx-auto">
-              Browse privacy-preserving models trained across the SecureDerm
-              hospital network. Each model was built without sharing patient
-              data.
-            </p>
-          </motion.div>
+      <main id="main" className="min-h-[70vh]">
+        <PageIntro eyebrow="Model registry" title="Federated models">
+          Privacy-preserving models trained across the SecureDerm hospital network. Each was built
+          without any hospital sharing patient images.
+        </PageIntro>
 
+        <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 sm:py-14">
           {loading ? (
-            <p className="text-center text-zinc-500">Loading models...</p>
-          ) : error ? (
-            <p className="text-center text-rose-400">
-              Could not load models. Is the backend running?
-            </p>
-          ) : models.length === 0 ? (
-            <p className="text-center text-zinc-500">
-              No models available yet.
-            </p>
-          ) : (
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {models.map((m, i) => (
-                <motion.div
-                  key={m.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.08 }}
-                  whileHover={{ y: -4 }}
-                  className="glass rounded-2xl p-6 flex flex-col justify-between hover:glow-border transition-all"
-                >
-                  <div>
-                    <div className="flex items-start justify-between">
-                      <h3 className="font-semibold text-sm leading-tight">
-                        {m.model_name}
-                      </h3>
-                      <span className="text-xs text-zinc-600 shrink-0 ml-2">
-                        v{m.version}
-                      </span>
-                    </div>
-                    <p
-                      className={`mt-3 text-xs text-zinc-400 leading-relaxed ${
-                        expandedId === m.id ? "" : "line-clamp-3"
-                      }`}
-                    >
-                      {m.description}
-                    </p>
-                  </div>
-
-                  <div className="mt-6 flex items-center justify-between border-t border-white/5 pt-4">
-                    <div className="flex items-center gap-4">
-                      <div>
-                        <div className="text-xs text-zinc-500">Accuracy</div>
-                        <div className="text-sm font-bold text-emerald-400">
-                          {(m.accuracy * 100).toFixed(1)}%
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-zinc-500">Hospitals</div>
-                        <div className="text-sm font-bold text-indigo-400">
-                          {m.hospital_count}
-                        </div>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => setExpandedId(expandedId === m.id ? null : m.id)}
-                      aria-expanded={expandedId === m.id}
-                      className="px-3 py-1.5 text-xs rounded-lg bg-indigo-600/20 border border-indigo-500/30 text-indigo-300 hover:bg-indigo-600/30 transition-colors"
-                    >
-                      {expandedId === m.id ? "Less" : "Details"}
-                    </button>
-                  </div>
-                </motion.div>
+            <ul className="space-y-3" aria-busy="true" aria-label="Loading models">
+              {[0, 1, 2].map((i) => (
+                <li key={i} className="rounded-lg border border-line bg-surface p-6">
+                  <div className="skeleton h-4 w-48" />
+                  <div className="skeleton mt-4 h-3 w-full max-w-xl" />
+                  <div className="skeleton mt-2 h-3 w-2/3 max-w-md" />
+                </li>
               ))}
-            </div>
+            </ul>
+          ) : error ? (
+            <EmptyState
+              icon={<IconAlert size={18} />}
+              title="Could not load models"
+              action={
+                <Button variant="secondary" onClick={load}>
+                  Try again
+                </Button>
+              }
+            >
+              The model registry did not respond. Check that the backend is running.
+            </EmptyState>
+          ) : models.length === 0 ? (
+            <EmptyState
+              icon={<IconChip size={18} />}
+              title="No models published yet"
+              action={
+                <Link href="/signup" className={buttonClass("primary")}>
+                  Register a hospital
+                </Link>
+              }
+            >
+              Models appear here after the network completes its first federated training run.
+            </EmptyState>
+          ) : (
+            <>
+              <div className="mb-4 flex items-baseline justify-between">
+                <p className="text-sm text-ink-2">
+                  <span className="font-medium text-ink tabular">{models.length}</span>{" "}
+                  {models.length === 1 ? "model" : "models"}
+                </p>
+              </div>
+              <ul className="overflow-hidden rounded-xl border border-line bg-surface shadow-raise">
+                {models.map((m) => {
+                  const expanded = expandedId === m.id;
+                  const pct = Math.max(0, Math.min(100, m.accuracy * 100));
+                  return (
+                    <li
+                      key={m.id}
+                      className="grid gap-5 border-b border-line p-5 transition-colors last:border-b-0 hover:bg-canvas/60 sm:p-6 md:grid-cols-[1fr_auto] md:gap-10"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h2 className="text-[15px] font-semibold text-ink">{m.model_name}</h2>
+                          <Badge tone="neutral" className="font-mono">
+                            v{m.version}
+                          </Badge>
+                        </div>
+                        <p
+                          id={`model-desc-${m.id}`}
+                          className={`mt-2 max-w-2xl text-sm leading-relaxed text-ink-2 ${expanded ? "" : "line-clamp-2"}`}
+                        >
+                          {m.description}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setExpandedId(expanded ? null : m.id)}
+                          aria-expanded={expanded}
+                          aria-controls={`model-desc-${m.id}`}
+                          className="mt-2 text-[13px] font-medium text-accent-ink underline-offset-4 hover:underline"
+                        >
+                          {expanded ? "Show less" : "Read more"}
+                        </button>
+                      </div>
+
+                      <dl className="grid grid-cols-3 gap-6 md:w-[360px]">
+                        <div className="col-span-1">
+                          <dt className="label-mono text-ink-3">Accuracy</dt>
+                          <dd className="mt-1.5 text-lg font-semibold text-ink tabular">{pct.toFixed(1)}%</dd>
+                          <dd className="mt-1.5 h-1 overflow-hidden rounded-full bg-sunken">
+                            <span className="block h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="label-mono text-ink-3">Hospitals</dt>
+                          <dd className="mt-1.5 flex items-center gap-1.5 text-lg font-semibold text-ink tabular">
+                            <IconHospital size={16} className="text-ink-3" />
+                            {m.hospital_count}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="label-mono text-ink-3">Published</dt>
+                          <dd className="mt-1.5 text-sm text-ink tabular">
+                            {m.created_at ? new Date(m.created_at).toLocaleDateString() : "Not recorded"}
+                          </dd>
+                        </div>
+                      </dl>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
           )}
         </div>
       </main>
