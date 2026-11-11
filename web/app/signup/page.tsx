@@ -3,11 +3,16 @@
 import { useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { motion } from "framer-motion";
 import { apiFetch } from "@/lib/api";
 import { assessPassword, MIN_PASSWORD_LENGTH } from "@/lib/password";
 import PasswordStrength from "@/components/PasswordStrength";
 import { useCapsLock } from "@/lib/useCapsLock";
+import AuthShell from "@/components/AuthShell";
+import Button, { buttonClass } from "@/components/ui/Button";
+import { Field, Input } from "@/components/ui/Field";
+import PasswordInput from "@/components/ui/PasswordInput";
+import Notice from "@/components/ui/Notice";
+import { IconCheck } from "@/components/ui/icons";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -27,8 +32,7 @@ export default function SignupPage() {
     setForm((prev) => ({ ...prev, [field]: value }));
   }
 
-  const passwordsMismatch =
-    form.confirmPassword.length > 0 && form.password !== form.confirmPassword;
+  const passwordsMismatch = form.confirmPassword.length > 0 && form.password !== form.confirmPassword;
   // Details the password should not echo back.
   const personal = [form.name, form.email.split("@")[0]];
   const { capsLock, handlers: capsHandlers } = useCapsLock();
@@ -64,9 +68,8 @@ export default function SignupPage() {
       });
 
       if (result.dev_verification_token) {
-        // No SMTP configured on the backend (local dev) — skip straight to
-        // the verification page instead of making the demo depend on a
-        // real inbox.
+        // No SMTP configured on the backend (local dev): skip straight to the
+        // verification page instead of making the demo depend on a real inbox.
         router.push(`/verify-email?token=${encodeURIComponent(result.dev_verification_token)}`);
         return;
       }
@@ -80,188 +83,138 @@ export default function SignupPage() {
 
   if (sentTo) {
     return (
-      <div className="min-h-screen flex items-center justify-center px-6">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="w-full max-w-md text-center glass rounded-2xl p-8"
-        >
-          <h1 className="text-xl font-semibold mb-2">Check your inbox</h1>
-          <p className="text-sm text-zinc-400">
-            We sent a verification link to <span className="text-zinc-200">{sentTo}</span>.
-            Open it to activate your hospital account.
+      <AuthShell
+        title="Check your inbox"
+        subtitle={
+          <>
+            We sent a verification link to <span className="font-medium text-ink">{sentTo}</span>. Open it to
+            activate your hospital account.
+          </>
+        }
+      >
+        <div className="flex items-center gap-3 rounded-lg border border-line bg-surface p-4 shadow-raise">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent-ink">
+            <IconCheck size={18} />
+          </span>
+          <p className="text-[13px] leading-relaxed text-ink-2">
+            The link works once. If it does not arrive within a few minutes, check your spam folder or
+            request a new one from the sign-in page.
           </p>
-          <Link
-            href="/login"
-            className="inline-block mt-6 text-sm text-indigo-400 hover:text-indigo-300 transition-colors"
-          >
-            Back to sign in
-          </Link>
-        </motion.div>
-      </div>
+        </div>
+        <Link href="/login" className={buttonClass("secondary", "lg", "mt-6 w-full")}>
+          Back to sign in
+        </Link>
+      </AuthShell>
     );
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-6 py-20">
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        className="w-full max-w-md"
-      >
-        <div className="text-center mb-8">
-          <Link href="/" className="text-2xl font-bold">
-            <span className="text-white">SecureDerm</span>
-            <span className="text-zinc-500 ml-1">AI</span>
+    <AuthShell
+      title="Register your hospital"
+      subtitle="Create a node to join the federated network. Your images stay on your own infrastructure."
+      footer={
+        <>
+          Already registered?{" "}
+          <Link href="/login" className="font-medium text-accent-ink underline-offset-4 hover:underline">
+            Sign in
           </Link>
-          <p className="mt-2 text-sm text-zinc-500">
-            Register your hospital to join the federated network
-          </p>
-        </div>
+        </>
+      }
+    >
+      <form onSubmit={handleSubmit} className="space-y-5">
+        {error && (
+          <Notice tone="danger" role="alert">
+            {error}
+          </Notice>
+        )}
 
-        <form
-          onSubmit={handleSubmit}
-          className="glass rounded-2xl p-8 space-y-5"
-        >
-          {error && (
-            <div className="text-sm text-rose-400 bg-rose-400/10 border border-rose-400/20 rounded-lg px-4 py-2">
-              {error}
-            </div>
-          )}
+        <Field label="Hospital name" htmlFor="signup-name">
+          <Input
+            type="text"
+            required
+            id="signup-name"
+            autoComplete="organization"
+            value={form.name}
+            maxLength={200}
+            onChange={(e) => update("name", e.target.value)}
+            placeholder="City General Hospital"
+          />
+        </Field>
 
-          <div>
-            <label htmlFor="signup-name" className="block text-sm text-zinc-400 mb-1.5">
-              Hospital Name
-            </label>
-            <input
-              type="text"
-              required
-              id="signup-name"
-              autoComplete="organization"
-              value={form.name}
-              maxLength={200}
-              onChange={(e) => update("name", e.target.value)}
-              className="w-full px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all"
-              placeholder="City General Hospital"
-            />
-          </div>
-
-          <div>
-            <label htmlFor="signup-email" className="block text-sm text-zinc-400 mb-1.5">Email</label>
-            <input
+        <div className="grid gap-5 sm:grid-cols-2">
+          <Field label="Work email" htmlFor="signup-email">
+            <Input
               type="email"
               required
               id="signup-email"
               autoComplete="email"
               value={form.email}
               onChange={(e) => update("email", e.target.value)}
-              className="w-full px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all"
-              placeholder="admin@hospital.com"
+              placeholder="admin@hospital.org"
             />
-          </div>
-
-          <div>
-            <label htmlFor="signup-password" className="block text-sm text-zinc-400 mb-1.5">
-              Password
-            </label>
-            <div className="relative">
-              <input
-                type={showPassword ? "text" : "password"}
-                required
-                minLength={MIN_PASSWORD_LENGTH}
-                maxLength={200}
-                id="signup-password"
-                autoComplete="new-password"
-                value={form.password}
-                onChange={(e) => update("password", e.target.value)}
-                aria-describedby="signup-password-hint"
-                {...capsHandlers}
-                className="w-full px-4 py-2.5 pr-16 rounded-lg bg-white/5 border border-white/10 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all"
-                placeholder="••••••••"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword((s) => !s)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
-                aria-label={showPassword ? "Hide passwords" : "Show passwords"}
-                aria-pressed={showPassword}
-              >
-                {showPassword ? "Hide" : "Show"}
-              </button>
-            </div>
-            {capsLock && (
-              <p role="status" className="mt-1 text-xs text-amber-300">
-                Caps Lock is on.
-              </p>
-            )}
-            {form.password.length === 0 ? (
-              <p id="signup-password-hint" className="mt-1 text-xs text-zinc-600">
-                At least {MIN_PASSWORD_LENGTH} characters. A short phrase works well.
-              </p>
-            ) : (
-              <PasswordStrength id="signup-password-hint" password={form.password} personal={personal} />
-            )}
-          </div>
-
-          <div>
-            <label htmlFor="signup-confirm" className="block text-sm text-zinc-400 mb-1.5">
-              Confirm Password
-            </label>
-            <input
-              type={showPassword ? "text" : "password"}
-              required
-              id="signup-confirm"
-              autoComplete="new-password"
-              value={form.confirmPassword}
-              onChange={(e) => update("confirmPassword", e.target.value)}
-              className={`w-full px-4 py-2.5 rounded-lg bg-white/5 border text-sm focus:outline-none focus:ring-2 transition-all ${
-                passwordsMismatch
-                  ? "border-rose-500/50 focus:ring-rose-500/50"
-                  : "border-white/10 focus:ring-indigo-500/50"
-              }`}
-              placeholder="••••••••"
-            />
-            {passwordsMismatch && (
-              <p className="mt-1 text-xs text-rose-400">Passwords do not match.</p>
-            )}
-          </div>
-
-          <div>
-            <label htmlFor="signup-location" className="block text-sm text-zinc-400 mb-1.5">
-              Location
-            </label>
-            <input
+          </Field>
+          <Field label="Location" htmlFor="signup-location" aside={<span className="text-xs text-ink-3">Optional</span>}>
+            <Input
               type="text"
               id="signup-location"
               autoComplete="address-level2"
               value={form.location}
               maxLength={200}
               onChange={(e) => update("location", e.target.value)}
-              className="w-full px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all"
               placeholder="San Francisco, CA"
             />
-          </div>
+          </Field>
+        </div>
 
-          <button
-            type="submit"
-            disabled={loading || passwordsMismatch}
-            className="w-full py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-sm font-medium shadow-lg shadow-indigo-500/25 transition-all"
-          >
-            {loading ? "Creating account..." : "Create Hospital Account"}
-          </button>
+        <Field label="Password" htmlFor="signup-password">
+          <PasswordInput
+            required
+            minLength={MIN_PASSWORD_LENGTH}
+            maxLength={200}
+            id="signup-password"
+            autoComplete="new-password"
+            value={form.password}
+            onChange={(e) => update("password", e.target.value)}
+            aria-describedby="signup-password-hint"
+            visible={showPassword}
+            onToggle={() => setShowPassword((s) => !s)}
+            toggleLabel={["Show passwords", "Hide passwords"]}
+            {...capsHandlers}
+          />
+          {capsLock && (
+            <p role="status" className="mt-1.5 text-xs text-warn-ink">
+              Caps Lock is on.
+            </p>
+          )}
+          {form.password.length === 0 ? (
+            <p id="signup-password-hint" className="mt-1.5 text-xs text-ink-3">
+              At least {MIN_PASSWORD_LENGTH} characters. A short phrase works well.
+            </p>
+          ) : (
+            <PasswordStrength id="signup-password-hint" password={form.password} personal={personal} />
+          )}
+        </Field>
 
-          <p className="text-center text-sm text-zinc-500">
-            Already have an account?{" "}
-            <Link
-              href="/login"
-              className="text-indigo-400 hover:text-indigo-300 transition-colors"
-            >
-              Sign in
-            </Link>
-          </p>
-        </form>
-      </motion.div>
-    </div>
+        <Field
+          label="Confirm password"
+          htmlFor="signup-confirm"
+          error={passwordsMismatch ? "Passwords do not match." : undefined}
+        >
+          <Input
+            type={showPassword ? "text" : "password"}
+            required
+            id="signup-confirm"
+            autoComplete="new-password"
+            value={form.confirmPassword}
+            onChange={(e) => update("confirmPassword", e.target.value)}
+            aria-invalid={passwordsMismatch || undefined}
+          />
+        </Field>
+
+        <Button type="submit" size="lg" loading={loading} disabled={passwordsMismatch} className="w-full">
+          {loading ? "Creating account..." : "Create hospital account"}
+        </Button>
+      </form>
+    </AuthShell>
   );
 }
