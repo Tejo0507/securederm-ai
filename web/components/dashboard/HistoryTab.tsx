@@ -1,10 +1,23 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { motion } from "framer-motion";
 import { apiDownload, apiFetch } from "@/lib/api";
 import HistoryTimeline from "@/components/dashboard/HistoryTimeline";
+import SectionHeader from "@/components/dashboard/SectionHeader";
 import { useConfirm } from "@/components/ConfirmProvider";
+import { Panel, PanelBody, PanelHeader, StatStrip } from "@/components/ui/Panel";
+import Button from "@/components/ui/Button";
+import { Input, Select } from "@/components/ui/Field";
+import Notice from "@/components/ui/Notice";
+import Badge from "@/components/ui/Badge";
+import EmptyState from "@/components/ui/EmptyState";
+import {
+  IconChevronLeft,
+  IconChevronRight,
+  IconDownload,
+  IconHistory,
+  IconTrash,
+} from "@/components/ui/icons";
 import type { HistoryPage, HistorySummary } from "@/lib/types";
 
 const PAGE_SIZE = 20;
@@ -13,7 +26,7 @@ type UnknownFilter = "all" | "unknown" | "recognized";
 
 /** The API stores naive UTC timestamps; without a zone `Date` would read them as local time. */
 function formatUtc(ts: string | null): string {
-  if (!ts) return "—";
+  if (!ts) return "Not recorded";
   const hasZone = /[zZ]|[+-]\d{2}:?\d{2}$/.test(ts);
   return new Date(hasZone ? ts : `${ts}Z`).toLocaleString();
 }
@@ -174,237 +187,273 @@ export default function HistoryTab() {
     { label: "Diagnoses", value: String(summary?.total ?? 0) },
     {
       label: "Flagged unknown",
-      value: summary ? `${(summary.unknown_rate * 100).toFixed(0)}%` : "—",
+      value: summary ? `${(summary.unknown_rate * 100).toFixed(0)}%` : "n/a",
     },
     {
       label: "Avg confidence",
       value:
         summary?.average_confidence != null
           ? `${(summary.average_confidence * 100).toFixed(0)}%`
-          : "—",
+          : "n/a",
     },
     { label: "Models used", value: String(summary?.by_model.length ?? 0) },
   ];
 
   const maxClassCount = Math.max(1, ...Object.values(summary?.by_class ?? {}));
+  const showClasses = !!summary && classes.length > 0;
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8">
-      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {cards.map((c) => (
-          <div key={c.label} className="glass rounded-xl p-5">
-            <div className="text-xs text-zinc-500 uppercase tracking-wider">{c.label}</div>
-            <div className="mt-1 text-xl font-bold">{c.value}</div>
-          </div>
-        ))}
-      </div>
-
-      {hasAnyHistory && <HistoryTimeline reloadKey={reloadKey} />}
-
-      {summary && classes.length > 0 && (
-        <div className="glass rounded-xl p-6">
-          <h3 className="font-semibold mb-4">Diagnoses by class</h3>
-          <div className="space-y-2">
-            {classes.map((name) => (
-              <div key={name}>
-                <div className="flex justify-between text-xs text-zinc-400 mb-1">
-                  <span>{name}</span>
-                  <span>{summary.by_class[name]}</span>
-                </div>
-                <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-indigo-500 to-purple-400 rounded-full"
-                    style={{ width: `${(summary.by_class[name] / maxClassCount) * 100}%` }}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="glass rounded-xl p-6">
-        <div className="flex flex-wrap items-end justify-between gap-4 mb-4">
-          <div>
-            <h3 className="font-semibold">Prediction history</h3>
-            <p className="text-xs text-zinc-500 mt-1">
-              Only the result is kept — never the image. Model ID identifies the exact model
-              version that answered.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2 items-center">
-            <label className="sr-only" htmlFor="history-label">
-              Filter by class
-            </label>
-            <select
-              id="history-label"
-              value={label}
-              onChange={(e) => {
-                setLabel(e.target.value);
-                setOffset(0);
-              }}
-              className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-zinc-300"
-            >
-              <option value="">All classes</option>
-              {classes.map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
-            </select>
-            <label className="sr-only" htmlFor="history-unknown">
-              Filter by outcome
-            </label>
-            <select
-              id="history-unknown"
-              value={unknown}
-              onChange={(e) => {
-                setUnknown(e.target.value as UnknownFilter);
-                setOffset(0);
-              }}
-              className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-zinc-300"
-            >
-              <option value="all">All outcomes</option>
-              <option value="recognized">Recognized</option>
-              <option value="unknown">Flagged unknown</option>
-            </select>
-            <label className="sr-only" htmlFor="history-from">
-              From date (UTC)
-            </label>
-            <input
-              id="history-from"
-              type="date"
-              value={from}
-              max={to || undefined}
-              onChange={(e) => {
-                setFrom(e.target.value);
-                setOffset(0);
-              }}
-              className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-zinc-300"
-            />
-            <span className="text-xs text-zinc-600" aria-hidden="true">
-              to
-            </span>
-            <label className="sr-only" htmlFor="history-to">
-              To date (UTC)
-            </label>
-            <input
-              id="history-to"
-              type="date"
-              value={to}
-              min={from || undefined}
-              onChange={(e) => {
-                setTo(e.target.value);
-                setOffset(0);
-              }}
-              className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-zinc-300"
-            />
-            <button
+    <div className="animate-fade-up">
+      <SectionHeader
+        title="Diagnosis history"
+        description="Only each result is kept, never the image. The model ID identifies the exact model version that answered."
+        actions={
+          <>
+            <Button
+              variant="secondary"
+              size="sm"
               onClick={exportCsv}
               disabled={busy || !hasAnyHistory || rangeInvalid}
-              className="px-3 py-1.5 text-sm rounded-lg bg-indigo-600/20 border border-indigo-500/30 text-indigo-300 hover:bg-indigo-600/30 disabled:opacity-40 transition-colors"
             >
+              <IconDownload size={15} />
               Export CSV
-            </button>
-            <button
-              onClick={eraseHistory}
-              disabled={busy || !hasAnyHistory}
-              className="px-3 py-1.5 text-sm rounded-lg bg-rose-600/10 border border-rose-500/30 text-rose-300 hover:bg-rose-600/20 disabled:opacity-40 transition-colors"
-            >
+            </Button>
+            <Button variant="danger-quiet" size="sm" onClick={eraseHistory} disabled={busy || !hasAnyHistory}>
+              <IconTrash size={15} />
               Erase history
-            </button>
+            </Button>
+          </>
+        }
+      />
+
+      <div className="space-y-6">
+        <StatStrip stats={cards} />
+
+        {(hasAnyHistory || showClasses) && (
+          <div className={`grid gap-6 ${hasAnyHistory && showClasses ? "xl:grid-cols-[1.6fr_1fr]" : ""}`}>
+            {hasAnyHistory && <HistoryTimeline reloadKey={reloadKey} />}
+
+            {showClasses && (
+              <Panel className="h-full">
+                <PanelHeader title="Diagnoses by class" />
+                <PanelBody>
+                  <ul className="space-y-3">
+                    {classes.map((name) => (
+                      <li key={name}>
+                        <div className="mb-1.5 flex justify-between gap-3 text-[13px]">
+                          <span className="truncate text-ink">{name}</span>
+                          <span className="font-mono text-xs text-ink-2 tabular">{summary.by_class[name]}</span>
+                        </div>
+                        <div className="h-1.5 overflow-hidden rounded-full bg-sunken">
+                          <div
+                            className="h-full rounded-full bg-accent"
+                            style={{ width: `${(summary.by_class[name] / maxClassCount) * 100}%` }}
+                          />
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </PanelBody>
+              </Panel>
+            )}
           </div>
-        </div>
-
-        {rangeInvalid && (
-          <p className="text-sm text-amber-300 mb-3">
-            The start date is after the end date, so nothing can match.
-          </p>
         )}
-        {error && <p className="text-sm text-rose-400 mb-3">{error}</p>}
 
-        {loading && !page ? (
-          <p className="text-sm text-zinc-500">Loading…</p>
-        ) : items.length === 0 ? (
-          <p className="text-sm text-zinc-500">
-            {hasAnyHistory
-              ? "No predictions match these filters."
-              : "No diagnoses yet. Results from the Predict tab will appear here."}
-          </p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-xs text-zinc-500 uppercase tracking-wider">
-                  <th className="py-2 pr-4 font-medium">When</th>
-                  <th className="py-2 pr-4 font-medium">Class</th>
-                  <th className="py-2 pr-4 font-medium">Confidence</th>
-                  <th className="py-2 pr-4 font-medium">Uncertainty</th>
-                  <th className="py-2 pr-4 font-medium">Outcome</th>
-                  <th className="py-2 pr-4 font-medium">Model</th>
-                  <th className="py-2 font-medium">
-                    <span className="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody className={loading ? "opacity-50" : ""}>
-                {items.map((row) => (
-                  <tr key={row.id} className="border-t border-white/5 text-zinc-300">
-                    <td className="py-2 pr-4 whitespace-nowrap">{formatUtc(row.created_at)}</td>
-                    <td className="py-2 pr-4">{row.predicted_class}</td>
-                    <td className="py-2 pr-4">{(row.confidence * 100).toFixed(1)}%</td>
-                    <td className="py-2 pr-4">{(row.uncertainty * 100).toFixed(0)}%</td>
-                    <td className="py-2 pr-4">
-                      {row.is_unknown ? (
-                        <span className="text-amber-300">Unknown — refer</span>
-                      ) : (
-                        <span className="text-emerald-300">Recognized</span>
-                      )}
-                    </td>
-                    <td className="py-2 pr-4 font-mono text-xs text-zinc-500">
-                      {row.model_id || "—"}
-                    </td>
-                    <td className="py-2 text-right">
-                      <button
-                        onClick={() => deleteEntry(row.id)}
-                        disabled={busy}
-                        aria-label={`Delete the ${row.predicted_class} entry from ${formatUtc(row.created_at)}`}
-                        className="text-xs text-zinc-500 hover:text-rose-300 disabled:opacity-40 transition-colors"
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
+        <Panel className="overflow-hidden">
+          <PanelHeader title="Predictions" description={`${total} matching ${total === 1 ? "entry" : "entries"}`} />
+
+          {/* filter toolbar */}
+          <div className="mt-4 flex flex-wrap items-end gap-3 border-y border-line bg-canvas px-5 py-3 sm:px-6">
+            <div className="w-full sm:w-44">
+              <label className="label-mono mb-1 block text-ink-3" htmlFor="history-label">
+                Class
+              </label>
+              <Select
+                compact
+                id="history-label"
+                value={label}
+                onChange={(e) => {
+                  setLabel(e.target.value);
+                  setOffset(0);
+                }}
+              >
+                <option value="">All classes</option>
+                {classes.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {total > PAGE_SIZE && (
-          <div className="flex items-center justify-between mt-4 text-sm text-zinc-400">
-            <span>
-              {offset + 1}–{Math.min(offset + PAGE_SIZE, total)} of {total}
-            </span>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
-                disabled={offset === 0 || loading}
-                className="px-3 py-1 rounded-lg bg-white/5 border border-white/10 disabled:opacity-40"
+              </Select>
+            </div>
+            <div className="w-full sm:w-44">
+              <label className="label-mono mb-1 block text-ink-3" htmlFor="history-unknown">
+                Outcome
+              </label>
+              <Select
+                compact
+                id="history-unknown"
+                value={unknown}
+                onChange={(e) => {
+                  setUnknown(e.target.value as UnknownFilter);
+                  setOffset(0);
+                }}
               >
-                Previous
-              </button>
-              <button
-                onClick={() => setOffset(Math.min(lastOffset, offset + PAGE_SIZE))}
-                disabled={offset >= lastOffset || loading}
-                className="px-3 py-1 rounded-lg bg-white/5 border border-white/10 disabled:opacity-40"
-              >
-                Next
-              </button>
+                <option value="all">All outcomes</option>
+                <option value="recognized">Recognized</option>
+                <option value="unknown">Flagged unknown</option>
+              </Select>
+            </div>
+            <div className="min-w-0 flex-1 sm:flex-none">
+              <label className="label-mono mb-1 block text-ink-3" htmlFor="history-from">
+                From (UTC)
+              </label>
+              <Input
+                compact
+                id="history-from"
+                type="date"
+                value={from}
+                max={to || undefined}
+                onChange={(e) => {
+                  setFrom(e.target.value);
+                  setOffset(0);
+                }}
+              />
+            </div>
+            <div className="min-w-0 flex-1 sm:flex-none">
+              <label className="label-mono mb-1 block text-ink-3" htmlFor="history-to">
+                To (UTC)
+              </label>
+              <Input
+                compact
+                id="history-to"
+                type="date"
+                value={to}
+                min={from || undefined}
+                onChange={(e) => {
+                  setTo(e.target.value);
+                  setOffset(0);
+                }}
+              />
             </div>
           </div>
-        )}
+
+          {(rangeInvalid || error) && (
+            <div className="space-y-2 px-5 pt-4 sm:px-6">
+              {rangeInvalid && (
+                <Notice tone="warning" role="status">
+                  The start date is after the end date, so nothing can match.
+                </Notice>
+              )}
+              {error && (
+                <Notice tone="danger" role="alert">
+                  {error}
+                </Notice>
+              )}
+            </div>
+          )}
+
+          {loading && !page ? (
+            <div className="space-y-3 p-5 sm:p-6" aria-busy="true" aria-label="Loading history">
+              {[0, 1, 2, 3, 4].map((i) => (
+                <div key={i} className="skeleton h-8 w-full" />
+              ))}
+            </div>
+          ) : items.length === 0 ? (
+            <div className="p-5 sm:p-6">
+              <EmptyState icon={<IconHistory size={18} />} title={hasAnyHistory ? "No matches" : "No diagnoses yet"}>
+                {hasAnyHistory
+                  ? "No predictions match these filters."
+                  : "No diagnoses yet. Results from the Predict tab will appear here."}
+              </EmptyState>
+            </div>
+          ) : (
+            <div className="relative overflow-x-auto">
+              <table className="w-full min-w-[760px] text-sm">
+                <thead>
+                  <tr className="border-b border-line bg-canvas text-left">
+                    <th className="label-mono px-5 py-2.5 font-medium text-ink-3 sm:pl-6">When</th>
+                    <th className="label-mono px-3 py-2.5 font-medium text-ink-3">Class</th>
+                    <th className="label-mono px-3 py-2.5 text-right font-medium text-ink-3">Confidence</th>
+                    <th className="label-mono px-3 py-2.5 text-right font-medium text-ink-3">Uncertainty</th>
+                    <th className="label-mono px-3 py-2.5 font-medium text-ink-3">Outcome</th>
+                    <th className="label-mono px-3 py-2.5 font-medium text-ink-3">Model</th>
+                    <th className="px-5 py-2.5 sm:pr-6">
+                      <span className="sr-only">Actions</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className={`transition-opacity ${loading ? "opacity-50" : ""}`}>
+                  {items.map((row) => (
+                    <tr key={row.id} className="border-b border-line last:border-b-0 hover:bg-canvas/70">
+                      <td className="whitespace-nowrap px-5 py-2.5 text-ink-2 tabular sm:pl-6">
+                        {formatUtc(row.created_at)}
+                      </td>
+                      <td className="px-3 py-2.5 font-medium text-ink">{row.predicted_class}</td>
+                      <td className="px-3 py-2.5 text-right text-ink tabular">
+                        {(row.confidence * 100).toFixed(1)}%
+                      </td>
+                      <td className="px-3 py-2.5 text-right text-ink-2 tabular">
+                        {(row.uncertainty * 100).toFixed(0)}%
+                      </td>
+                      <td className="px-3 py-2.5">
+                        {row.is_unknown ? (
+                          <Badge tone="warning" dot>
+                            Refer
+                          </Badge>
+                        ) : (
+                          <Badge tone="success" dot>
+                            Recognized
+                          </Badge>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5 font-mono text-xs text-ink-3">{row.model_id || "Not recorded"}</td>
+                      <td className="px-5 py-1.5 text-right sm:pr-6">
+                        <button
+                          type="button"
+                          onClick={() => deleteEntry(row.id)}
+                          disabled={busy}
+                          aria-label={`Delete the ${row.predicted_class} entry from ${formatUtc(row.created_at)}`}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded text-ink-3 transition-colors hover:bg-danger-soft hover:text-danger-ink disabled:opacity-40"
+                        >
+                          <IconTrash size={16} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {total > PAGE_SIZE && (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-5 py-3 text-[13px] text-ink-2 sm:px-6">
+              <span className="tabular">
+                {offset + 1} to {Math.min(offset + PAGE_SIZE, total)} of {total}
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+                  disabled={offset === 0 || loading}
+                >
+                  <IconChevronLeft size={14} />
+                  Previous
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setOffset(Math.min(lastOffset, offset + PAGE_SIZE))}
+                  disabled={offset >= lastOffset || loading}
+                >
+                  Next
+                  <IconChevronRight size={14} />
+                </Button>
+              </div>
+            </div>
+          )}
+        </Panel>
       </div>
-    </motion.div>
+    </div>
   );
 }

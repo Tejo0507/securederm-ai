@@ -1,12 +1,17 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, ReactNode, useState } from "react";
 import { useRouter } from "next/navigation";
-import { motion } from "framer-motion";
 import { apiDownload, apiFetch } from "@/lib/api";
 import { expectSessionEnd } from "@/lib/session";
 import { useConfirm } from "@/components/ConfirmProvider";
 import PasswordStrength from "@/components/PasswordStrength";
+import SectionHeader from "@/components/dashboard/SectionHeader";
+import { Panel } from "@/components/ui/Panel";
+import Button from "@/components/ui/Button";
+import { Field, Input } from "@/components/ui/Field";
+import { InlineStatus } from "@/components/ui/Notice";
+import { IconDownload, IconLogout } from "@/components/ui/icons";
 import { assessPassword } from "@/lib/password";
 import type { HospitalInfo } from "@/lib/types";
 
@@ -15,8 +20,59 @@ interface Props {
   onProfileUpdated: (hospital: HospitalInfo) => void;
 }
 
-const inputClass =
-  "w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-indigo-500/60";
+/**
+ * One settings block: title and explanation on the left, controls on the right
+ * (stacked on narrow screens). Every block on the page uses this frame.
+ */
+function SettingsBlock({
+  title,
+  description,
+  children,
+  footer,
+  tone = "default",
+  onSubmit,
+}: {
+  title: string;
+  description: ReactNode;
+  children?: ReactNode;
+  footer: ReactNode;
+  tone?: "default" | "danger";
+  onSubmit?: (e: FormEvent<HTMLFormElement>) => void;
+}) {
+  const body = (
+    <>
+      <div className="grid gap-5 p-5 sm:p-6 lg:grid-cols-[minmax(0,260px)_1fr] lg:gap-10">
+        <div>
+          <h2 className={`text-[15px] font-semibold tracking-[-0.01em] ${tone === "danger" ? "text-danger-ink" : "text-ink"}`}>
+            {title}
+          </h2>
+          <p className="mt-1 text-[13px] leading-relaxed text-ink-2">{description}</p>
+        </div>
+        {children && <div className="min-w-0">{children}</div>}
+      </div>
+      <div
+        className={`flex flex-wrap items-center justify-end gap-3 border-t px-5 py-3 sm:px-6 ${
+          tone === "danger" ? "border-danger/20 bg-danger-soft/40" : "border-line bg-canvas/60"
+        }`}
+      >
+        {footer}
+      </div>
+    </>
+  );
+
+  if (onSubmit) {
+    return (
+      <Panel as="form" tone={tone} onSubmit={onSubmit as (e: FormEvent<HTMLElement>) => void} className="overflow-hidden">
+        {body}
+      </Panel>
+    );
+  }
+  return (
+    <Panel tone={tone} className="overflow-hidden">
+      {body}
+    </Panel>
+  );
+}
 
 function ProfileForm({ hospital, onProfileUpdated }: Props) {
   const [name, setName] = useState(hospital.name);
@@ -50,67 +106,55 @@ function ProfileForm({ hospital, onProfileUpdated }: Props) {
   }
 
   return (
-    <form onSubmit={save} className="glass rounded-xl p-6 space-y-4">
-      <div>
-        <h3 className="font-semibold">Hospital profile</h3>
-        <p className="text-xs text-zinc-500 mt-1">
-          Shown to other hospitals in the network directory. Your sign-in email ({hospital.email})
-          can&apos;t be changed here.
-        </p>
-      </div>
-      <div className="grid sm:grid-cols-2 gap-4">
-        <div>
-          <label htmlFor="profile-name" className="block text-xs text-zinc-500 mb-1">
-            Hospital name
-          </label>
-          <input
+    <SettingsBlock
+      title="Hospital profile"
+      description={
+        <>
+          Shown to other hospitals in the network directory. Your sign-in email ({hospital.email}) can&apos;t be
+          changed here.
+        </>
+      }
+      onSubmit={save}
+      footer={
+        <>
+          {message && <InlineStatus error={isError}>{message}</InlineStatus>}
+          <Button type="submit" size="sm" loading={saving} disabled={unchanged || !name.trim()}>
+            {saving ? "Saving..." : "Save changes"}
+          </Button>
+        </>
+      }
+    >
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Hospital name" htmlFor="profile-name">
+          <Input
             id="profile-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
             maxLength={200}
             required
             autoComplete="organization"
-            className={inputClass}
           />
-        </div>
-        <div>
-          <label htmlFor="profile-location" className="block text-xs text-zinc-500 mb-1">
-            Location
-          </label>
-          <input
+        </Field>
+        <Field label="Location" htmlFor="profile-location">
+          <Input
             id="profile-location"
             value={location}
             onChange={(e) => setLocation(e.target.value)}
             maxLength={200}
             autoComplete="address-level2"
-            className={inputClass}
           />
-        </div>
+        </Field>
       </div>
-      <div className="flex items-center gap-4">
-        <button
-          type="submit"
-          disabled={saving || unchanged || !name.trim()}
-          className="px-4 py-2 text-sm rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 font-medium transition-colors"
-        >
-          {saving ? "Saving…" : "Save changes"}
-        </button>
-        {message && (
-          <span role="status" className={`text-sm ${isError ? "text-rose-400" : "text-emerald-400"}`}>
-            {message}
-          </span>
-        )}
-      </div>
-    </form>
+    </SettingsBlock>
   );
 }
 
 function endSessionLocally(router: ReturnType<typeof useRouter>) {
-  expectSessionEnd();   // deliberate: later failed polls are not "session expired"
+  expectSessionEnd(); // deliberate: later failed polls are not "session expired"
   try {
     localStorage.removeItem("hospital");
   } catch {
-    // storage blocked — nothing cached to clear
+    // storage blocked; nothing cached to clear
   }
   router.push("/login");
 }
@@ -155,51 +199,47 @@ function PasswordForm({ hospital }: { hospital: HospitalInfo }) {
   }
 
   return (
-    <form onSubmit={save} className="glass rounded-xl p-6 space-y-4">
-      <div>
-        <h3 className="font-semibold">Change password</h3>
-        <p className="text-xs text-zinc-500 mt-1">
-          You&apos;ll be signed out everywhere and asked to sign in with the new password. At least
-          8 characters.
-        </p>
-      </div>
-      <div className="grid sm:grid-cols-3 gap-4">
-        <div>
-          <label htmlFor="pw-current" className="block text-xs text-zinc-500 mb-1">
-            Current password
-          </label>
-          <input
+    <SettingsBlock
+      title="Change password"
+      description="You'll be signed out everywhere and asked to sign in with the new password. At least 8 characters."
+      onSubmit={save}
+      footer={
+        <>
+          {error && <InlineStatus error>{error}</InlineStatus>}
+          <Button type="submit" size="sm" loading={saving}>
+            {saving ? "Updating..." : "Update password"}
+          </Button>
+        </>
+      }
+    >
+      <div className="grid max-w-md gap-4">
+        <Field label="Current password" htmlFor="pw-current">
+          <Input
             id="pw-current"
             type="password"
             value={current}
             onChange={(e) => setCurrent(e.target.value)}
             required
             autoComplete="current-password"
-            className={inputClass}
           />
-        </div>
+        </Field>
         <div>
-          <label htmlFor="pw-new" className="block text-xs text-zinc-500 mb-1">
-            New password
-          </label>
-          <input
-            id="pw-new"
-            type="password"
-            value={next}
-            onChange={(e) => setNext(e.target.value)}
-            required
-            minLength={8}
-            autoComplete="new-password"
-            aria-describedby="pw-new-hint"
-            className={inputClass}
-          />
+          <Field label="New password" htmlFor="pw-new">
+            <Input
+              id="pw-new"
+              type="password"
+              value={next}
+              onChange={(e) => setNext(e.target.value)}
+              required
+              minLength={8}
+              autoComplete="new-password"
+              aria-describedby="pw-new-hint"
+            />
+          </Field>
           <PasswordStrength id="pw-new-hint" password={next} personal={personal} />
         </div>
-        <div>
-          <label htmlFor="pw-confirm" className="block text-xs text-zinc-500 mb-1">
-            Confirm new password
-          </label>
-          <input
+        <Field label="Confirm new password" htmlFor="pw-confirm">
+          <Input
             id="pw-confirm"
             type="password"
             value={confirm}
@@ -207,25 +247,10 @@ function PasswordForm({ hospital }: { hospital: HospitalInfo }) {
             required
             minLength={8}
             autoComplete="new-password"
-            className={inputClass}
           />
-        </div>
+        </Field>
       </div>
-      <div className="flex items-center gap-4">
-        <button
-          type="submit"
-          disabled={saving}
-          className="px-4 py-2 text-sm rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 font-medium transition-colors"
-        >
-          {saving ? "Updating…" : "Update password"}
-        </button>
-        {error && (
-          <span role="alert" className="text-sm text-rose-400">
-            {error}
-          </span>
-        )}
-      </div>
-    </form>
+    </SettingsBlock>
   );
 }
 
@@ -250,29 +275,19 @@ function DownloadMyData() {
   }
 
   return (
-    <div className="glass rounded-xl p-6 space-y-3">
-      <div>
-        <h3 className="font-semibold">Download my data</h3>
-        <p className="text-xs text-zinc-500 mt-1">
-          A JSON copy of your profile, dataset records, prediction history and account activity.
-          It never includes your password, session tokens or uploaded images.
-        </p>
-      </div>
-      <div className="flex items-center gap-4">
-        <button
-          onClick={download}
-          disabled={working}
-          className="px-4 py-2 text-sm rounded-lg bg-indigo-600/20 border border-indigo-500/30 text-indigo-300 hover:bg-indigo-600/30 disabled:opacity-40 transition-colors"
-        >
-          {working ? "Preparing…" : "Download JSON"}
-        </button>
-        {message && (
-          <span role="status" className={`text-sm ${isError ? "text-rose-400" : "text-emerald-400"}`}>
-            {message}
-          </span>
-        )}
-      </div>
-    </div>
+    <SettingsBlock
+      title="Download my data"
+      description="A JSON copy of your profile, dataset records, prediction history and account activity. It never includes your password, session tokens or uploaded images."
+      footer={
+        <>
+          {message && <InlineStatus error={isError}>{message}</InlineStatus>}
+          <Button variant="secondary" size="sm" onClick={download} loading={working}>
+            {!working && <IconDownload size={15} />}
+            {working ? "Preparing..." : "Download JSON"}
+          </Button>
+        </>
+      }
+    />
   );
 }
 
@@ -303,39 +318,33 @@ function SignOutEverywhere() {
   }
 
   return (
-    <div className="glass rounded-xl p-6 space-y-3">
-      <div>
-        <h3 className="font-semibold">Sign out everywhere</h3>
-        <p className="text-xs text-zinc-500 mt-1">
-          Ends every active session on every device — use it after losing a laptop or signing in on
-          a shared computer. You can sign straight back in here.
-        </p>
-      </div>
-      <div className="flex items-center gap-4">
-        <button
-          onClick={signOutEverywhere}
-          disabled={working}
-          className="px-4 py-2 text-sm rounded-lg bg-rose-600/10 border border-rose-500/30 text-rose-300 hover:bg-rose-600/20 disabled:opacity-40 transition-colors"
-        >
-          {working ? "Signing out…" : "Sign out of all devices"}
-        </button>
-        {error && (
-          <span role="alert" className="text-sm text-rose-400">
-            {error}
-          </span>
-        )}
-      </div>
-    </div>
+    <SettingsBlock
+      tone="danger"
+      title="Sign out everywhere"
+      description="Ends every active session on every device. Use it after losing a laptop or signing in on a shared computer. You can sign straight back in here."
+      footer={
+        <>
+          {error && <InlineStatus error>{error}</InlineStatus>}
+          <Button variant="danger-quiet" size="sm" onClick={signOutEverywhere} loading={working}>
+            {!working && <IconLogout size={15} />}
+            {working ? "Signing out..." : "Sign out of all devices"}
+          </Button>
+        </>
+      }
+    />
   );
 }
 
 export default function SettingsTab(props: Props) {
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8 max-w-3xl">
-      <ProfileForm {...props} />
-      <PasswordForm hospital={props.hospital} />
-      <DownloadMyData />
-      <SignOutEverywhere />
-    </motion.div>
+    <div className="max-w-4xl animate-fade-up">
+      <SectionHeader title="Settings" description="Your hospital profile, password, data export and sessions." />
+      <div className="space-y-6">
+        <ProfileForm {...props} />
+        <PasswordForm hospital={props.hospital} />
+        <DownloadMyData />
+        <SignOutEverywhere />
+      </div>
+    </div>
   );
 }
