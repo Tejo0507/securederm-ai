@@ -127,7 +127,7 @@ async def _run_simulation(state: dict, hospital_name: str) -> None:
         loss_a = base_loss * (0.82 ** round_num) + random.uniform(-0.03, 0.03)
         state["loss"] = round(loss_a, 4)
         state["logs"].append(
-            f"[Round {round_num}] {hospital_name} — local loss: {loss_a:.4f}"
+            f"[Round {round_num}] {hospital_name}, local loss: {loss_a:.4f}"
         )
         await asyncio.sleep(1)
 
@@ -144,7 +144,7 @@ async def _run_simulation(state: dict, hospital_name: str) -> None:
 
         avg_loss = round((loss_a + loss_b) / 2, 4)
         state["logs"].append(
-            f"[Round {round_num}] Aggregator merging updates — Avg Loss: {avg_loss}"
+            f"[Round {round_num}] Aggregator merging updates, avg loss: {avg_loss}"
         )
 
         state["metrics"].append(
