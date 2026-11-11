@@ -12,6 +12,8 @@ import {
   useState,
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { buttonClass } from "@/components/ui/Button";
+import { IconAlert } from "@/components/ui/icons";
 
 export interface ConfirmOptions {
   title: string;
@@ -129,7 +131,7 @@ function Dialog({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.15 }}
-      className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+      className="fixed inset-0 z-[100] flex items-end justify-center bg-ink/40 p-4 backdrop-blur-[2px] sm:items-center dark:bg-black/60"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose(false);
       }}
@@ -141,35 +143,40 @@ function Dialog({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={messageId}
-        initial={{ opacity: 0, scale: 0.96, y: 8 }}
+        initial={{ opacity: 0, scale: 0.98, y: 10 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.97 }}
-        transition={{ duration: 0.15 }}
-        className="w-full max-w-md rounded-2xl border border-white/10 bg-zinc-900 p-6 shadow-2xl"
+        exit={{ opacity: 0, scale: 0.98, y: 6 }}
+        transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+        className="w-full max-w-md rounded-xl border border-line bg-surface p-6 shadow-float"
       >
-        <h2 id={titleId} className="text-lg font-semibold text-white">
-          {options.title}
-        </h2>
-        <p id={messageId} className="mt-2 text-sm text-zinc-400">
-          {options.message}
-        </p>
+        <div className="flex gap-4">
+          {options.danger && (
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-danger-soft text-danger-ink">
+              <IconAlert size={18} />
+            </span>
+          )}
+          <div className="min-w-0">
+            <h2 id={titleId} className="text-base font-semibold tracking-[-0.01em] text-ink">
+              {options.title}
+            </h2>
+            <p id={messageId} className="mt-1.5 text-sm leading-relaxed text-ink-2">
+              {options.message}
+            </p>
+          </div>
+        </div>
         <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <button
             ref={cancelButton}
             type="button"
             onClick={() => onClose(false)}
-            className="px-4 py-2 rounded-lg text-sm bg-white/5 border border-white/10 text-zinc-200 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/70 transition-colors"
+            className={buttonClass("secondary", "md")}
           >
             {options.cancelLabel ?? "Cancel"}
           </button>
           <button
             type="button"
             onClick={() => onClose(true)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium text-white focus-visible:outline-none focus-visible:ring-2 transition-colors ${
-              options.danger
-                ? "bg-rose-600 hover:bg-rose-500 focus-visible:ring-rose-300/70"
-                : "bg-indigo-600 hover:bg-indigo-500 focus-visible:ring-indigo-300/70"
-            }`}
+            className={buttonClass(options.danger ? "danger" : "primary", "md")}
           >
             {options.confirmLabel ?? "Confirm"}
           </button>
