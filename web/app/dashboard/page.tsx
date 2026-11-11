@@ -16,13 +16,17 @@ import {
 import { apiFetch, ApiError } from "@/lib/api";
 import type { BatchPredictionResponse, HospitalInfo, PredictionResult } from "@/lib/types";
 import HistoryTab from "@/components/dashboard/HistoryTab";
+import TabBar, { panelId, tabId } from "@/components/dashboard/TabBar";
 import ModelInfoBanner from "@/components/dashboard/ModelInfoBanner";
 import SettingsTab from "@/components/dashboard/SettingsTab";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
-type Tab = "overview" | "data" | "predict" | "history" | "training" | "network" | "settings";
+const TAB_KEYS = [
+  "overview", "data", "predict", "history", "training", "network", "settings",
+] as const;
+type Tab = (typeof TAB_KEYS)[number];
 
 interface Metric {
   round: number;
@@ -49,7 +53,25 @@ const UPLOAD_BATCH_MAX_BYTES = 20 * 1024 * 1024;
 /* ================================================================== */
 export default function DashboardPage() {
   const router = useRouter();
-  const [tab, setTab] = useState<Tab>("overview");
+  const [tab, setTabState] = useState<Tab>("overview");
+
+  // Keep the section in the URL (#history) so a refresh or a shared link lands
+  // on the same tab. replaceState: tab switches shouldn't flood the back button.
+  const setTab = useCallback((next: Tab) => {
+    setTabState(next);
+    window.history.replaceState(null, "", `#${next}`);
+  }, []);
+  useEffect(() => {
+    // Also reacts to the hash changing while the page stays open (a pasted
+    // link in the same tab, or the browser's back/forward buttons).
+    const syncFromHash = () => {
+      const fromHash = window.location.hash.slice(1);
+      setTabState(TAB_KEYS.includes(fromHash as Tab) ? (fromHash as Tab) : "overview");
+    };
+    syncFromHash();
+    window.addEventListener("hashchange", syncFromHash);
+    return () => window.removeEventListener("hashchange", syncFromHash);
+  }, []);
   const [hospital, setHospital] = useState<HospitalInfo | null>(null);
 
   /* auth guard: session lives in an httpOnly cookie, so we can't just
@@ -127,33 +149,16 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      {/* tabs */}
-      <div className="border-b border-white/5">
-        <div className="max-w-7xl mx-auto px-6 flex gap-1">
-          {tabs.map((t) => (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              className={`px-4 py-3 text-sm font-medium transition-colors relative ${
-                tab === t.key
-                  ? "text-white"
-                  : "text-zinc-500 hover:text-zinc-300"
-              }`}
-            >
-              {t.label}
-              {tab === t.key && (
-                <motion.div
-                  layoutId="tab-indicator"
-                  className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500"
-                />
-              )}
-            </button>
-          ))}
-        </div>
-      </div>
+      <TabBar tabs={tabs} active={tab} onChange={setTab} />
 
       {/* content */}
-      <main className="max-w-7xl mx-auto px-6 py-8">
+      <main
+        role="tabpanel"
+        id={panelId(tab)}
+        aria-labelledby={tabId(tab)}
+        tabIndex={-1}
+        className="max-w-7xl mx-auto px-6 py-8 focus:outline-none"
+      >
         {tab === "overview" && <OverviewTab hospital={hospital} setTab={setTab} />}
         {tab === "data" && <DataTab />}
         {tab === "predict" && <PredictTab />}
