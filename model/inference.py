@@ -171,7 +171,7 @@ class WoundPredictor:
         is_unknown = confidence < OOD_CONFIDENCE_THRESHOLD
         if is_unknown:
             message = (
-                "Unrecognized pattern — this does not clearly match any "
+                "Unrecognized pattern. This does not clearly match any "
                 "trained class. Refer for manual review rather than trusting "
                 "this label."
             )
