@@ -1,18 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Legend,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { apiFetch } from "@/lib/api";
+import { chart } from "@/lib/chart";
 import type { HistoryTimeline as Timeline } from "@/lib/types";
+import { Panel, PanelBody, PanelHeader } from "@/components/ui/Panel";
+import EmptyState from "@/components/ui/EmptyState";
+import { IconPulse } from "@/components/ui/icons";
 
 const RANGES = [7, 30, 90] as const;
 
@@ -46,72 +41,79 @@ export default function HistoryTimeline({ reloadKey }: { reloadKey: number }) {
   const total = (timeline?.series ?? []).reduce((sum, p) => sum + p.total, 0);
 
   return (
-    <div className="glass rounded-xl p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-        <div>
-          <h3 className="font-semibold">Activity</h3>
-          <p className="text-xs text-zinc-500 mt-1">
-            {timeline ? `${total} diagnoses in the last ${days} days (UTC days)` : "Loading…"}
-          </p>
-        </div>
-        <div className="flex gap-1" role="group" aria-label="Time range">
-          {RANGES.map((r) => (
-            <button
-              key={r}
-              onClick={() => setDays(r)}
-              aria-pressed={days === r}
-              className={`px-3 py-1 text-xs rounded-lg border transition-colors ${
-                days === r
-                  ? "bg-indigo-600/30 border-indigo-500/40 text-indigo-200"
-                  : "bg-white/5 border-white/10 text-zinc-400 hover:text-zinc-200"
-              }`}
-            >
-              {r} days
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {failed ? (
-        <p className="text-sm text-zinc-500">The activity chart is unavailable right now.</p>
-      ) : timeline && total === 0 ? (
-        <p className="text-sm text-zinc-500">No diagnoses in this period.</p>
-      ) : (
-        <div className="h-56">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={data} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
-              <CartesianGrid stroke="rgba(255,255,255,0.06)" vertical={false} />
-              <XAxis
-                dataKey="day"
-                tick={{ fill: "#71717a", fontSize: 11 }}
-                tickLine={false}
-                axisLine={false}
-                interval="preserveStartEnd"
-                minTickGap={24}
-              />
-              <YAxis
-                allowDecimals={false}
-                tick={{ fill: "#71717a", fontSize: 11 }}
-                tickLine={false}
-                axisLine={false}
-              />
-              <Tooltip
-                cursor={{ fill: "rgba(255,255,255,0.04)" }}
-                contentStyle={{
-                  background: "#18181b",
-                  border: "1px solid rgba(255,255,255,0.1)",
-                  borderRadius: 8,
-                  fontSize: 12,
-                }}
-                labelFormatter={(_, payload) => payload?.[0]?.payload?.date ?? ""}
-              />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
-              <Bar dataKey="Recognized" stackId="a" fill="#6366f1" radius={[0, 0, 0, 0]} />
-              <Bar dataKey="Flagged unknown" stackId="a" fill="#fbbf24" radius={[3, 3, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      )}
-    </div>
+    <Panel className="h-full">
+      <PanelHeader
+        title="Activity"
+        description={timeline ? `${total} diagnoses in the last ${days} days (UTC days)` : "Loading..."}
+        actions={
+          <div
+            className="inline-flex rounded border border-line-strong bg-canvas p-0.5"
+            role="group"
+            aria-label="Time range"
+          >
+            {RANGES.map((r) => (
+              <button
+                key={r}
+                type="button"
+                onClick={() => setDays(r)}
+                aria-pressed={days === r}
+                className={`h-7 rounded-[4px] px-2.5 text-xs font-medium tabular transition-colors ${
+                  days === r ? "bg-surface text-ink shadow-raise" : "text-ink-2 hover:text-ink"
+                }`}
+              >
+                {r} days
+              </button>
+            ))}
+          </div>
+        }
+      />
+      <PanelBody>
+        {failed ? (
+          <EmptyState icon={<IconPulse size={18} />} title="Chart unavailable">
+            The activity chart is unavailable right now.
+          </EmptyState>
+        ) : timeline && total === 0 ? (
+          <EmptyState icon={<IconPulse size={18} />} title="No diagnoses in this period" />
+        ) : !timeline ? (
+          <div className="skeleton h-56 w-full" aria-hidden="true" />
+        ) : (
+          <>
+            <div className="mb-3 flex gap-4 text-xs text-ink-2">
+              <span className="inline-flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-sm bg-accent" />
+                Recognized
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-sm bg-warn" />
+                Flagged unknown
+              </span>
+            </div>
+            <div className="h-56">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={data} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+                  <CartesianGrid stroke={chart.grid} vertical={false} />
+                  <XAxis
+                    dataKey="day"
+                    tick={chart.axisTick}
+                    tickLine={false}
+                    axisLine={false}
+                    interval="preserveStartEnd"
+                    minTickGap={24}
+                  />
+                  <YAxis allowDecimals={false} tick={chart.axisTick} tickLine={false} axisLine={false} />
+                  <Tooltip
+                    {...chart.tooltip}
+                    cursor={chart.barCursor}
+                    labelFormatter={(_, payload) => payload?.[0]?.payload?.date ?? ""}
+                  />
+                  <Bar dataKey="Recognized" stackId="a" fill={chart.series} radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="Flagged unknown" stackId="a" fill={chart.seriesAlt} radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </>
+        )}
+      </PanelBody>
+    </Panel>
   );
 }
