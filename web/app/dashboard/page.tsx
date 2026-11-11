@@ -16,13 +16,19 @@ import {
 import { apiFetch, ApiError } from "@/lib/api";
 import type { BatchPredictionResponse, HospitalInfo, PredictionResult } from "@/lib/types";
 import HistoryTab from "@/components/dashboard/HistoryTab";
+import TabBar, { panelId, tabId } from "@/components/dashboard/TabBar";
+import { expectSessionEnd, onSessionEnded, SESSION_ENDED_REDIRECT } from "@/lib/session";
+import { useConfirm } from "@/components/ConfirmProvider";
 import ModelInfoBanner from "@/components/dashboard/ModelInfoBanner";
 import SettingsTab from "@/components/dashboard/SettingsTab";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
-type Tab = "overview" | "data" | "predict" | "history" | "training" | "network" | "settings";
+const TAB_KEYS = [
+  "overview", "data", "predict", "history", "training", "network", "settings",
+] as const;
+type Tab = (typeof TAB_KEYS)[number];
 
 interface Metric {
   round: number;
@@ -49,7 +55,25 @@ const UPLOAD_BATCH_MAX_BYTES = 20 * 1024 * 1024;
 /* ================================================================== */
 export default function DashboardPage() {
   const router = useRouter();
-  const [tab, setTab] = useState<Tab>("overview");
+  const [tab, setTabState] = useState<Tab>("overview");
+
+  // Keep the section in the URL (#history) so a refresh or a shared link lands
+  // on the same tab. replaceState: tab switches shouldn't flood the back button.
+  const setTab = useCallback((next: Tab) => {
+    setTabState(next);
+    window.history.replaceState(null, "", `#${next}`);
+  }, []);
+  useEffect(() => {
+    // Also reacts to the hash changing while the page stays open (a pasted
+    // link in the same tab, or the browser's back/forward buttons).
+    const syncFromHash = () => {
+      const fromHash = window.location.hash.slice(1);
+      setTabState(TAB_KEYS.includes(fromHash as Tab) ? (fromHash as Tab) : "overview");
+    };
+    syncFromHash();
+    window.addEventListener("hashchange", syncFromHash);
+    return () => window.removeEventListener("hashchange", syncFromHash);
+  }, []);
   const [hospital, setHospital] = useState<HospitalInfo | null>(null);
 
   /* auth guard: session lives in an httpOnly cookie, so we can't just
@@ -79,7 +103,23 @@ export default function DashboardPage() {
       });
   }, [router]);
 
+  // One central reaction when any request finds the session gone (it expired,
+  // or was ended from another device) instead of a cryptic error in each tab.
+  useEffect(
+    () =>
+      onSessionEnded(() => {
+        try {
+          localStorage.removeItem("hospital");
+        } catch {
+          // storage blocked; nothing cached to clear
+        }
+        router.replace(SESSION_ENDED_REDIRECT);
+      }),
+    [router],
+  );
+
   async function logout() {
+    expectSessionEnd();
     try {
       await apiFetch("/api/auth/logout", { method: "POST" });
     } catch {
@@ -127,33 +167,16 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      {/* tabs */}
-      <div className="border-b border-white/5">
-        <div className="max-w-7xl mx-auto px-6 flex gap-1">
-          {tabs.map((t) => (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              className={`px-4 py-3 text-sm font-medium transition-colors relative ${
-                tab === t.key
-                  ? "text-white"
-                  : "text-zinc-500 hover:text-zinc-300"
-              }`}
-            >
-              {t.label}
-              {tab === t.key && (
-                <motion.div
-                  layoutId="tab-indicator"
-                  className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500"
-                />
-              )}
-            </button>
-          ))}
-        </div>
-      </div>
+      <TabBar tabs={tabs} active={tab} onChange={setTab} />
 
       {/* content */}
-      <main className="max-w-7xl mx-auto px-6 py-8">
+      <main
+        role="tabpanel"
+        id={panelId(tab)}
+        aria-labelledby={tabId(tab)}
+        tabIndex={-1}
+        className="max-w-7xl mx-auto px-6 py-8 focus:outline-none"
+      >
         {tab === "overview" && <OverviewTab hospital={hospital} setTab={setTab} />}
         {tab === "data" && <DataTab />}
         {tab === "predict" && <PredictTab />}
@@ -280,6 +303,7 @@ function OverviewTab({ hospital, setTab }: { hospital: HospitalInfo; setTab: (t:
 /*  DATA TAB                                                           */
 /* ------------------------------------------------------------------ */
 function DataTab() {
+  const confirm = useConfirm();
   const [datasets, setDatasets] = useState<
     { id: number; name: string; image_count: number; created_at: string }[]
   >([]);
@@ -293,7 +317,14 @@ function DataTab() {
   const [deleteError, setDeleteError] = useState("");
 
   async function eraseData() {
-    if (!window.confirm("Delete all uploaded images? This cannot be undone.")) return;
+    const ok = await confirm({
+      title: "Delete all uploaded images?",
+      message:
+        "Every image you have uploaded is permanently removed from the server. This cannot be undone.",
+      confirmLabel: "Delete images",
+      danger: true,
+    });
+    if (!ok) return;
     setErasing(true);
     try {
       const res = await apiFetch<{ deleted_images: number }>("/api/datasets", {
@@ -312,7 +343,14 @@ function DataTab() {
 
   async function deleteAccount(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (!window.confirm("Permanently delete your account and all data?")) return;
+    const ok = await confirm({
+      title: "Delete your account?",
+      message:
+        "Your account, uploaded images and prediction history are permanently erased, and every session is ended. This cannot be undone.",
+      confirmLabel: "Delete my account",
+      danger: true,
+    });
+    if (!ok) return;
     setDeleting(true);
     setDeleteError("");
     try {
@@ -320,6 +358,7 @@ function DataTab() {
         method: "DELETE",
         body: JSON.stringify({ password: deletePassword }),
       });
+      expectSessionEnd();
       localStorage.removeItem("hospital");
       router.push("/");
     } catch (err: unknown) {
@@ -745,6 +784,7 @@ function PredictTab() {
 /*  TRAINING TAB                                                       */
 /* ------------------------------------------------------------------ */
 function TrainingTab() {
+  const confirm = useConfirm();
   const [status, setStatus] = useState<TrainingStatus | null>(null);
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
@@ -794,7 +834,13 @@ function TrainingTab() {
   }
 
   async function stopTraining() {
-    if (!window.confirm("Stop the training run? Completed rounds are kept.")) return;
+    const ok = await confirm({
+      title: "Stop the training run?",
+      message: "Rounds that already finished are kept. You can start a new run afterwards.",
+      confirmLabel: "Stop training",
+      danger: true,
+    });
+    if (!ok) return;
     setStopping(true);
     setError("");
     try {

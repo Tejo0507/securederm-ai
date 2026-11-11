@@ -5,16 +5,25 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { apiFetch, ApiError } from "@/lib/api";
+import { useCapsLock } from "@/lib/useCapsLock";
 
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const { capsLock, handlers: capsHandlers } = useCapsLock();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [needsVerification, setNeedsVerification] = useState(false);
   const [resendState, setResendState] = useState<"idle" | "sending" | "sent">("idle");
+
+  // Sent here because the session ended (expired, or signed out elsewhere):
+  // say so, rather than showing a bare login form with no explanation.
+  const [sessionEnded, setSessionEnded] = useState(false);
+  useEffect(() => {
+    setSessionEnded(new URLSearchParams(window.location.search).get("reason") === "expired");
+  }, []);
 
   // Someone who already has a valid session shouldn't be asked to sign in again.
   useEffect(() => {
@@ -93,8 +102,19 @@ export default function LoginPage() {
           onSubmit={handleSubmit}
           className="glass rounded-2xl p-8 space-y-5"
         >
+          {sessionEnded && !error && (
+            <div
+              role="status"
+              className="text-sm text-amber-200 bg-amber-400/10 border border-amber-400/20 rounded-lg px-4 py-2"
+            >
+              Your session has ended. Please sign in again to continue.
+            </div>
+          )}
           {error && (
-            <div className="text-sm text-rose-400 bg-rose-400/10 border border-rose-400/20 rounded-lg px-4 py-2 space-y-2">
+            <div
+              role="alert"
+              className="text-sm text-rose-400 bg-rose-400/10 border border-rose-400/20 rounded-lg px-4 py-2 space-y-2"
+            >
               <p>{error}</p>
               {needsVerification && (
                 <button
@@ -139,6 +159,7 @@ export default function LoginPage() {
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                {...capsHandlers}
                 className="w-full px-4 py-2.5 pr-16 rounded-lg bg-white/5 border border-white/10 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all"
                 placeholder="••••••••"
               />
@@ -146,11 +167,17 @@ export default function LoginPage() {
                 type="button"
                 onClick={() => setShowPassword((s) => !s)}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
-                tabIndex={-1}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                aria-pressed={showPassword}
               >
                 {showPassword ? "Hide" : "Show"}
               </button>
             </div>
+            {capsLock && (
+              <p role="status" className="mt-1 text-xs text-amber-300">
+                Caps Lock is on.
+              </p>
+            )}
           </div>
 
           <button
