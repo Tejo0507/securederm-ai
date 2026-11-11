@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { apiDownload, apiFetch } from "@/lib/api";
+import { expectSessionEnd } from "@/lib/session";
 import type { HospitalInfo } from "@/lib/types";
 
 interface Props {
@@ -102,6 +103,7 @@ function ProfileForm({ hospital, onProfileUpdated }: Props) {
 }
 
 function endSessionLocally(router: ReturnType<typeof useRouter>) {
+  expectSessionEnd();   // deliberate: later failed polls are not "session expired"
   try {
     localStorage.removeItem("hospital");
   } catch {
