@@ -38,6 +38,14 @@ body {
 
 /* Utility classes */
 @layer utilities {
+  /* Scrollable but without a visible scrollbar (the tab strip on phones). */
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
   .glass {
     @apply bg-white/5 backdrop-blur-xl border border-white/10;
   }
