@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { apiDownload, apiFetch } from "@/lib/api";
 import HistoryTimeline from "@/components/dashboard/HistoryTimeline";
+import { useConfirm } from "@/components/ConfirmProvider";
 import type { HistoryPage, HistorySummary } from "@/lib/types";
 
 const PAGE_SIZE = 20;
@@ -45,6 +46,7 @@ function errorMessage(err: unknown, fallback: string): string {
 }
 
 export default function HistoryTab() {
+  const confirm = useConfirm();
   const [summary, setSummary] = useState<HistorySummary | null>(null);
   const [page, setPage] = useState<HistoryPage | null>(null);
   const [label, setLabel] = useState("");
@@ -97,7 +99,13 @@ export default function HistoryTab() {
   }, [label, unknown, from, to, rangeInvalid, offset, reloadKey]);
 
   async function deleteEntry(id: number) {
-    if (!window.confirm("Delete this entry from your history?")) return;
+    const ok = await confirm({
+      title: "Delete this entry?",
+      message: "It is removed from your prediction history. This cannot be undone.",
+      confirmLabel: "Delete entry",
+      danger: true,
+    });
+    if (!ok) return;
     setBusy(true);
     setError("");
     try {
@@ -129,7 +137,14 @@ export default function HistoryTab() {
   }
 
   async function eraseHistory() {
-    if (!window.confirm("Erase your entire prediction history? This cannot be undone.")) return;
+    const ok = await confirm({
+      title: "Erase your entire history?",
+      message:
+        "Every recorded diagnosis result is permanently deleted from your account. This cannot be undone.",
+      confirmLabel: "Erase history",
+      danger: true,
+    });
+    if (!ok) return;
     setBusy(true);
     setError("");
     try {
