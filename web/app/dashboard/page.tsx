@@ -17,6 +17,7 @@ import { apiFetch, ApiError } from "@/lib/api";
 import type { BatchPredictionResponse, HospitalInfo, PredictionResult } from "@/lib/types";
 import HistoryTab from "@/components/dashboard/HistoryTab";
 import TabBar, { panelId, tabId } from "@/components/dashboard/TabBar";
+import { expectSessionEnd, onSessionEnded, SESSION_ENDED_REDIRECT } from "@/lib/session";
 import ModelInfoBanner from "@/components/dashboard/ModelInfoBanner";
 import SettingsTab from "@/components/dashboard/SettingsTab";
 
@@ -101,7 +102,23 @@ export default function DashboardPage() {
       });
   }, [router]);
 
+  // One central reaction when any request finds the session gone (it expired,
+  // or was ended from another device) instead of a cryptic error in each tab.
+  useEffect(
+    () =>
+      onSessionEnded(() => {
+        try {
+          localStorage.removeItem("hospital");
+        } catch {
+          // storage blocked; nothing cached to clear
+        }
+        router.replace(SESSION_ENDED_REDIRECT);
+      }),
+    [router],
+  );
+
   async function logout() {
+    expectSessionEnd();
     try {
       await apiFetch("/api/auth/logout", { method: "POST" });
     } catch {
@@ -325,6 +342,7 @@ function DataTab() {
         method: "DELETE",
         body: JSON.stringify({ password: deletePassword }),
       });
+      expectSessionEnd();
       localStorage.removeItem("hospital");
       router.push("/");
     } catch (err: unknown) {

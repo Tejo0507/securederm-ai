@@ -16,6 +16,13 @@ export default function LoginPage() {
   const [needsVerification, setNeedsVerification] = useState(false);
   const [resendState, setResendState] = useState<"idle" | "sending" | "sent">("idle");
 
+  // Sent here because the session ended (expired, or signed out elsewhere):
+  // say so, rather than showing a bare login form with no explanation.
+  const [sessionEnded, setSessionEnded] = useState(false);
+  useEffect(() => {
+    setSessionEnded(new URLSearchParams(window.location.search).get("reason") === "expired");
+  }, []);
+
   // Someone who already has a valid session shouldn't be asked to sign in again.
   useEffect(() => {
     let cancelled = false;
@@ -93,8 +100,19 @@ export default function LoginPage() {
           onSubmit={handleSubmit}
           className="glass rounded-2xl p-8 space-y-5"
         >
+          {sessionEnded && !error && (
+            <div
+              role="status"
+              className="text-sm text-amber-200 bg-amber-400/10 border border-amber-400/20 rounded-lg px-4 py-2"
+            >
+              Your session has ended. Please sign in again to continue.
+            </div>
+          )}
           {error && (
-            <div className="text-sm text-rose-400 bg-rose-400/10 border border-rose-400/20 rounded-lg px-4 py-2 space-y-2">
+            <div
+              role="alert"
+              className="text-sm text-rose-400 bg-rose-400/10 border border-rose-400/20 rounded-lg px-4 py-2 space-y-2"
+            >
               <p>{error}</p>
               {needsVerification && (
                 <button

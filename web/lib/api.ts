@@ -1,3 +1,5 @@
+import { isSessionEnded, notifySessionEnded } from "@/lib/session";
+
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
 
 const CSRF_COOKIE_NAME = "csrf_token";
@@ -108,6 +110,7 @@ export async function apiFetch<T = unknown>(
     // `detail` is only a string for errors we raise ourselves; guard against
     // other shapes so the UI never renders "[object Object]".
     const detail = typeof err?.detail === "string" ? err.detail : "Request failed";
+    if (isSessionEnded(res.status, detail)) notifySessionEnded();
     throw new ApiError(res.status, detail || "Request failed");
   }
 
