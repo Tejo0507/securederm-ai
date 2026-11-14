@@ -1,7 +1,14 @@
+from datetime import datetime, timezone
+
 from sqlalchemy import Boolean, Column, Integer, String, Float, DateTime, ForeignKey, Text
 from sqlalchemy.sql import func
 
 from web_backend.database import Base
+
+
+def _utcnow() -> datetime:
+    """Naive UTC, matching what SQLite's CURRENT_TIMESTAMP stores."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class Hospital(Base):
@@ -11,7 +18,10 @@ class Hospital(Base):
     email = Column(String(200), unique=True, nullable=False, index=True)
     password_hash = Column(String(500), nullable=False)
     location = Column(String(200), default="")
-    created_at = Column(DateTime, server_default=func.now())
+    # Set in Python rather than by SQLite's CURRENT_TIMESTAMP, which keeps
+    # whole seconds only: session checks compare it with a token's
+    # fractional issue time (see auth.get_current_hospital).
+    created_at = Column(DateTime, default=_utcnow, server_default=func.now())
 
     # ── Email verification ──────────────────────────────────────────
     email_verified = Column(Boolean, nullable=False, default=False)
