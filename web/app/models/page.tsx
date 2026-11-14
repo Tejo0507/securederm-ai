@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useOverflows } from "@/lib/useOverflows";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
@@ -19,6 +20,44 @@ interface Model {
   description: string;
   hospital_count: number;
   created_at: string | null;
+}
+
+/** A two-line description with a "Read more" toggle only when lines are actually hidden. */
+function ModelDescription({
+  id,
+  text,
+  expanded,
+  onToggle,
+}: {
+  id: string;
+  text: string;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const ref = useRef<HTMLParagraphElement>(null);
+  const clamped = useOverflows(ref, !expanded);
+  return (
+    <>
+      <p
+        ref={ref}
+        id={id}
+        className={`mt-2 max-w-2xl text-sm leading-relaxed text-ink-2 ${expanded ? "" : "line-clamp-2"}`}
+      >
+        {text}
+      </p>
+      {(clamped || expanded) && (
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={expanded}
+          aria-controls={id}
+          className="mt-2 text-[13px] font-medium text-accent-ink underline-offset-4 hover:underline"
+        >
+          {expanded ? "Show less" : "Read more"}
+        </button>
+      )}
+    </>
+  );
 }
 
 export default function ModelsPage() {
@@ -106,21 +145,12 @@ export default function ModelsPage() {
                             v{m.version}
                           </Badge>
                         </div>
-                        <p
+                        <ModelDescription
                           id={`model-desc-${m.id}`}
-                          className={`mt-2 max-w-2xl text-sm leading-relaxed text-ink-2 ${expanded ? "" : "line-clamp-2"}`}
-                        >
-                          {m.description}
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => setExpandedId(expanded ? null : m.id)}
-                          aria-expanded={expanded}
-                          aria-controls={`model-desc-${m.id}`}
-                          className="mt-2 text-[13px] font-medium text-accent-ink underline-offset-4 hover:underline"
-                        >
-                          {expanded ? "Show less" : "Read more"}
-                        </button>
+                          text={m.description}
+                          expanded={expanded}
+                          onToggle={() => setExpandedId(expanded ? null : m.id)}
+                        />
                       </div>
 
                       <dl className="grid grid-cols-3 gap-6 md:w-[360px]">
