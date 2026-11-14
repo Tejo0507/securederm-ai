@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { apiFetch, ApiError } from "@/lib/api";
+import { apiFetch, ApiError, mightHaveSession } from "@/lib/api";
 import Logo from "@/components/ui/Logo";
 import { buttonClass } from "@/components/ui/Button";
 import { IconArrowRight, IconMenu, IconX } from "@/components/ui/icons";
@@ -31,6 +31,15 @@ export default function Navbar() {
     // a successful login/signup/me check; good enough for a nav link (worst
     // case it's stale and /dashboard's own auth guard redirects).
     let cancelled = false;
+    if (!mightHaveSession()) {
+      // No session cookie pair: signed out for sure, and the cache is stale.
+      try {
+        localStorage.removeItem("hospital");
+      } catch {
+        // ignore
+      }
+      return () => window.removeEventListener("scroll", onScroll);
+    }
     try {
       setLoggedIn(!!localStorage.getItem("hospital"));
     } catch {

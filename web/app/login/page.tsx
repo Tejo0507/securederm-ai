@@ -3,7 +3,7 @@
 import { useEffect, useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { apiFetch, ApiError } from "@/lib/api";
+import { apiFetch, ApiError, mightHaveSession } from "@/lib/api";
 import { useCapsLock } from "@/lib/useCapsLock";
 import AuthShell from "@/components/AuthShell";
 import Button from "@/components/ui/Button";
@@ -35,6 +35,7 @@ export default function LoginPage() {
 
   // Someone who already has a valid session shouldn't be asked to sign in again.
   useEffect(() => {
+    if (!mightHaveSession()) return;
     let cancelled = false;
     apiFetch("/api/auth/me")
       .then(() => !cancelled && router.replace("/dashboard"))
