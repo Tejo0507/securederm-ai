@@ -35,7 +35,9 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${sans.variable} ${mono.variable}`}>
+    // data-scroll-behavior tells Next.js the smooth scrolling in globals.css is
+    // ours, so it turns it off for route changes (which should jump to the top).
+    <html lang="en" className={`${sans.variable} ${mono.variable}`} data-scroll-behavior="smooth">
       <body className="min-h-screen font-sans">
         <a
           href="#main"
