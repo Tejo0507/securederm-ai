@@ -117,7 +117,9 @@ export function createFederationScene(host: HTMLElement, initial: ThemeColors): 
   world.add(grid, floor);
 
   // ── Hospitals ──
-  for (const site of SITES) {
+  // Roofs light up while a site trains, each a beat after the last.
+  const roofMaterial = keep(new THREE.MeshStandardMaterial({ roughness: 0.6, metalness: 0 }));
+  const hospitals = SITES.map((site) => {
     const building = new THREE.Group();
     building.position.set(site.x, 0, site.z);
     building.rotation.y = Math.atan2(-site.x, -site.z); // same side faces the hub
@@ -126,34 +128,115 @@ export function createFederationScene(host: HTMLElement, initial: ThemeColors): 
     block.position.z = 0.06;
     const wing = outlined(GEO.wing, solid("surface"), edge("ink3"), 0.22);
     wing.position.x = -0.3;
-    const roof = outlined(GEO.roof, solid("sunken"), edge("ink3"), 0.54);
+    const ownRoof = keep(roofMaterial.clone());
+    const roof = outlined(GEO.roof, ownRoof, edge("ink3"), 0.54);
     roof.position.x = 0.08;
     roof.position.z = 0.06;
     building.add(outlined(GEO.plinth, solid("surface"), edge("lineStrong"), 0.05), block, wing, roof);
     // Local images: a small stack that never leaves the site.
-    for (let i = 0; i < 3; i++) {
+    const slabs = [0, 1, 2].map((i) => {
       const slab = outlined(GEO.slab, solid("sunken"), edge("ink3"), 0.37 + i * 0.045);
       slab.position.x = -0.3;
       slab.position.z = -0.02;
       building.add(slab);
-    }
+      return slab;
+    });
     world.add(building);
-  }
+    return { roof: ownRoof, slabs };
+  });
 
   // ── Aggregator and the global model above it ──
   const hub = new THREE.Group();
   hub.add(outlined(GEO.hub, solid("ink"), edge("ink2"), 0.21), outlined(GEO.hubCap, solid("ink2"), edge("ink3"), 0.45));
-  const model = outlined(GEO.model, solid("accent"), edge("onAccent"), 1.05);
+  const model = outlined(GEO.model, solid("accent"), edge("onAccent"), 1.0);
   hub.add(model);
+  // FedAvg pulse: a flat ring that swells out from the hub while averaging.
+  const haloMaterial = keep(new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false }));
+  const halo = new THREE.Mesh(keep(new THREE.RingGeometry(0.72, 0.8, 6)), haloMaterial);
+  halo.rotation.x = -Math.PI / 2;
+  halo.position.y = 0.02;
+  hub.add(halo);
   world.add(hub);
 
-  // ── Update paths ──
+  // ── Update paths, each with a glowing overlay and three update packets ──
+  const glowMaterial = keep(new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }));
+  const packetMaterial = keep(new THREE.MeshBasicMaterial());
+  const packetGeometry = keep(new THREE.BoxGeometry(0.08, 0.08, 0.08));
+  const PACKETS_PER_ARC = 3;
   const arcs = SITES.map((site) => {
     const curve = arcFor(site);
     const tube = new THREE.Mesh(keep(new THREE.TubeGeometry(curve, 64, 0.011, 6)), keep(new THREE.MeshBasicMaterial()));
-    world.add(tube);
-    return { curve, tube };
+    const glow = new THREE.Mesh(keep(new THREE.TubeGeometry(curve, 64, 0.024, 8)), glowMaterial);
+    const packets = Array.from({ length: PACKETS_PER_ARC }, () => {
+      const packet = new THREE.Mesh(packetGeometry, packetMaterial);
+      packet.visible = false;
+      world.add(packet);
+      return packet;
+    });
+    world.add(tube, glow);
+    return { curve, tube, packets };
   });
+
+  // ── Round phases: each visual eases toward its target weight. ──
+  const TARGETS: Record<ScenePhase, { train: number; up: number; agg: number; down: number }> = {
+    training: { train: 1, up: 0, agg: 0, down: 0 },
+    uploading: { train: 0, up: 1, agg: 0, down: 0 },
+    aggregating: { train: 0, up: 0, agg: 1, down: 0 },
+    distributing: { train: 0, up: 0, agg: 0, down: 1 },
+  };
+  let phase: ScenePhase = "training";
+  const weight = { train: 1, up: 0, agg: 0, down: 0 };
+  let phaseStart = 0;
+  const roofIdle = new THREE.Color();
+  const roofLit = new THREE.Color();
+  const point = new THREE.Vector3();
+  const tangent = new THREE.Vector3();
+  const ahead = new THREE.Vector3();
+  const easeInOut = (t: number) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
+
+  function animate(time: number, dt: number) {
+    const ease = 1 - Math.exp(-dt * 5);
+    const target = TARGETS[phase];
+    for (const k of ["train", "up", "agg", "down"] as const) weight[k] += (target[k] - weight[k]) * ease;
+    const sincePhase = time - phaseStart;
+
+    // The whole model turns slowly, like a piece on a turntable.
+    world.rotation.y += dt * 0.06;
+
+    hospitals.forEach((h, i) => {
+      const stagger = Math.min(1, Math.max(0, sincePhase * 2.2 - i * 0.18));
+      const lit = weight.train * (phase === "training" ? stagger : 1);
+      h.roof.color.copy(roofIdle).lerp(roofLit, lit);
+      h.roof.emissive.copy(roofLit).multiplyScalar(lit * 0.25);
+      h.slabs.forEach((s, j) => {
+        s.position.y = 0.37 + j * 0.045 + Math.sin(time * 4 + i + j * 0.9) * 0.012 * lit;
+      });
+    });
+
+    const moving = Math.max(weight.up, weight.down);
+    glowMaterial.opacity = moving * 0.35;
+    const outbound = weight.down > weight.up;
+    arcs.forEach((arc, i) => {
+      arc.packets.forEach((packet, k) => {
+        packet.visible = moving > 0.04;
+        if (!packet.visible) return;
+        const raw = (time * 0.55 + k / PACKETS_PER_ARC + i * 0.07) % 1;
+        const t = easeInOut(outbound ? 1 - raw : raw);
+        arc.curve.getPoint(t, point);
+        arc.curve.getTangent(t, tangent);
+        packet.position.copy(point);
+        packet.lookAt(ahead.copy(point).add(tangent));
+        packet.scale.setScalar(moving * (0.75 + 0.25 * Math.sin(raw * Math.PI)));
+      });
+    });
+
+    const pulse = (sincePhase * 1.4) % 1;
+    halo.scale.setScalar(1 + pulse * 0.9 * weight.agg);
+    haloMaterial.opacity = weight.agg * (1 - pulse) * 0.55;
+    model.rotation.y += dt * (0.5 + weight.agg * 4);
+    model.position.y = 1.0 + Math.sin(time * 1.6) * 0.05 + weight.agg * 0.12;
+    model.scale.setScalar(1 + weight.agg * 0.18 * (1 - pulse) + weight.down * 0.06);
+  }
 
   // ── Theme ──
   function applyColors(c: ThemeColors) {
@@ -166,6 +249,11 @@ export function createFederationScene(host: HTMLElement, initial: ThemeColors): 
     gridMaterial.color.set(c.line);
     shadowMaterial.opacity = c.dark ? 0.35 : 0.08;
     for (const { tube } of arcs) (tube.material as THREE.MeshBasicMaterial).color.set(c.lineStrong);
+    roofIdle.set(c.sunken);
+    roofLit.set(c.accent);
+    glowMaterial.color.set(c.accent);
+    packetMaterial.color.set(c.accent);
+    haloMaterial.color.set(c.accent);
   }
   applyColors(initial);
 
@@ -184,15 +272,27 @@ export function createFederationScene(host: HTMLElement, initial: ThemeColors): 
   ro.observe(host);
   resize();
 
-  const frame = () => renderer.render(scene, camera);
+  let last = performance.now();
+  const frame = (now: number) => {
+    // Clamp the step so a frame after a long pause doesn't jump.
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    animate(now / 1000, dt);
+    renderer.render(scene, camera);
+  };
   let active = false;
 
   return {
     setColors: applyColors,
-    setPhase: () => {},
+    setPhase(next) {
+      if (next === phase) return;
+      phase = next;
+      phaseStart = performance.now() / 1000;
+    },
     setActive(next) {
       if (next === active) return;
       active = next;
+      last = performance.now();
       renderer.setAnimationLoop(next ? frame : null);
     },
     dispose() {
