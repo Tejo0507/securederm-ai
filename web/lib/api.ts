@@ -26,6 +26,17 @@ function getCookie(name: string): string | null {
 }
 
 /**
+ * Whether a session could exist at all. The session cookie is httpOnly, but
+ * the API issues and clears its JS-readable CSRF cookie alongside it, so no
+ * CSRF cookie means there is nothing for /api/auth/me to find. Checking
+ * first saves signed-out visitors a request that can only answer 401 (and
+ * a red console error on every page).
+ */
+export function mightHaveSession(): boolean {
+  return getCookie(CSRF_COOKIE_NAME) !== null;
+}
+
+/**
  * Download a file the API serves behind the session cookie (e.g. the CSV
  * export). A plain link would navigate away to the JSON error body on a
  * 401, so fetch it, check the status, and save the bytes as a Blob.
