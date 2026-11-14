@@ -71,7 +71,7 @@ export default function TabBar<K extends string>({
             onClick={() => onChange(t.key)}
             className={`group relative flex shrink-0 items-center gap-2.5 whitespace-nowrap px-3 py-3 text-sm font-medium transition-colors duration-150 focus-visible:outline-offset-[-2px] lg:h-9 lg:rounded lg:py-0 ${
               selected
-                ? "text-ink after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-full after:bg-accent lg:bg-surface lg:shadow-raise lg:ring-1 lg:ring-line lg:after:hidden"
+                ? "text-ink after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-full after:bg-accent lg:bg-surface lg:shadow-edge-neutral lg:ring-1 lg:ring-line lg:after:hidden"
                 : "text-ink-2 hover:text-ink lg:hover:bg-ink/[0.05]"
             }`}
           >

@@ -162,7 +162,7 @@ export default function PredictTab() {
               <SingleResult result={result} probabilities={sortedProbabilities} />
             ) : (
               <div className="flex flex-col items-center rounded border border-dashed border-line-strong bg-canvas/60 px-6 py-14 text-center">
-                <span className="flex h-10 w-10 items-center justify-center rounded-lg border border-line bg-surface text-ink-3 shadow-raise">
+                <span className="flex h-10 w-10 items-center justify-center rounded-lg border border-line bg-surface text-ink-3 shadow-edge-neutral">
                   <IconScan size={18} />
                 </span>
                 <p className="mt-3 text-sm font-medium text-ink">No image analyzed yet</p>
