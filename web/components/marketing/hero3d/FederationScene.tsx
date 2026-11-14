@@ -57,11 +57,12 @@ export default function FederationScene({ colors, phase, active, round, classNam
             ref={(el) => {
               labels.current[i] = el;
             }}
-            className="absolute left-0 top-0 whitespace-nowrap rounded-md border border-line bg-surface/90 px-2 py-1 shadow-raise backdrop-blur-sm will-change-transform"
+            className="absolute left-0 top-0 whitespace-nowrap rounded-md border border-line bg-surface/90 px-1.5 py-0.5 shadow-raise backdrop-blur-sm will-change-transform sm:px-2 sm:py-1"
           >
-            <p className="text-[11px] font-semibold leading-tight text-ink">{site.label}</p>
+            <p className="text-[10px] font-semibold leading-tight text-ink sm:text-[11px]">{site.label}</p>
+            {/* Phones get the name only; five status lines crowd a small stage. */}
             <p
-              className={`font-mono text-[10px] leading-tight transition-colors ${
+              className={`hidden font-mono text-[10px] leading-tight transition-colors sm:block ${
                 phase === "training" ? "text-accent-ink" : "text-ink-3"
               }`}
             >
@@ -77,7 +78,7 @@ export default function FederationScene({ colors, phase, active, round, classNam
             aggregating ? "border-accent bg-accent text-accent-on" : "border-ink/80 bg-ink text-canvas"
           }`}
         >
-          Aggregator · FedAvg · R{round}
+          <span className="hidden sm:inline">Aggregator · </span>FedAvg · R{round}
         </div>
       </div>
     </div>

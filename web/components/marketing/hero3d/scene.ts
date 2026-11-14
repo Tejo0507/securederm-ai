@@ -25,8 +25,8 @@ export const SITES = ["A", "B", "C", "D", "E"].map((id, i, all) => {
 });
 
 const HUB_TOP = new THREE.Vector3(0, 0.5, 0);
-const CAMERA_HOME = new THREE.Vector3(0, 5.3, 8.6);
-const LOOK_AT = new THREE.Vector3(0, 0.25, 0);
+const CAMERA_HOME = new THREE.Vector3(0, 5.0, 8.1);
+const LOOK_AT = new THREE.Vector3(0, -0.55, 0);
 
 /** The path an update takes: up out of the hospital, over, and down into the hub. */
 function arcFor(site: { x: number; z: number }) {
@@ -209,11 +209,17 @@ export function createFederationScene(host: HTMLElement, initial: ThemeColors): 
 
   // ── Labels: HTML pinned to projected anchor points, dimmed at the back. ──
   let labels: (HTMLElement | null)[] = [];
+  // Measured outside the frame loop: reading layout right after writing
+  // transforms would force a reflow every frame.
+  let labelWidths: number[] = [];
+  const measureLabels = () => {
+    labelWidths = labels.map((el) => el?.offsetWidth ?? 0);
+  };
   const anchors = [
     ...SITES.map((s) => new THREE.Vector3(s.x, 0.78, s.z)),
-    // The hub's label hangs off its front edge, facing the viewer whatever
-    // the rotation, so it never covers the hub or the model.
-    new THREE.Vector3(0, 0, 0.95),
+    // The hub's label sits off its right flank in screen terms (unaffected by
+    // the turntable), clear of the model and of the front site's label.
+    new THREE.Vector3(0.8, 0.3, 0.2),
   ];
   const projected = new THREE.Vector3();
   function placeLabels() {
@@ -230,10 +236,16 @@ export function createFederationScene(host: HTMLElement, initial: ThemeColors): 
       // How far toward the viewer this anchor has turned: -1 back, 1 front.
       const facing = projected.z / RING_RADIUS;
       projected.project(camera);
-      const x = (projected.x * 0.5 + 0.5) * w;
+      let x = (projected.x * 0.5 + 0.5) * w;
       const y = (-projected.y * 0.5 + 0.5) * h;
-      const hang = isSite ? "-100%" : "0%"; // sites sit above their anchor, the hub below
-      el.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0) translate(-50%, ${hang})`;
+      // Keep every label wholly inside the stage on narrow screens.
+      const width = labelWidths[i] ?? 0;
+      const EDGE = 6;
+      if (isSite) x = THREE.MathUtils.clamp(x, width / 2 + EDGE, Math.max(width / 2 + EDGE, w - width / 2 - EDGE));
+      else x = Math.min(x, Math.max(EDGE, w - width - EDGE));
+      // Sites sit centered above their anchor; the hub's label starts at its anchor.
+      const offset = isSite ? "translate(-50%, -100%)" : "translate(0, -50%)";
+      el.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0) ${offset}`;
       if (isSite) {
         el.style.opacity = (0.55 + 0.45 * THREE.MathUtils.clamp((facing + 1) / 2, 0, 1)).toFixed(2);
         el.style.zIndex = String(Math.round((facing + 1) * 10));
@@ -328,6 +340,7 @@ export function createFederationScene(host: HTMLElement, initial: ThemeColors): 
     camera.position.copy(CAMERA_HOME).multiplyScalar(pullBack);
     camera.lookAt(LOOK_AT);
     camera.updateProjectionMatrix();
+    measureLabels(); // label text size changes at breakpoints
     placeLabels();
   }
   const ro = new ResizeObserver(resize);
@@ -393,12 +406,15 @@ export function createFederationScene(host: HTMLElement, initial: ThemeColors): 
     setColors: applyColors,
     setLabels(elements) {
       labels = elements;
+      measureLabels();
       placeLabels();
     },
     setPhase(next) {
       if (next === phase) return;
       phase = next;
       phaseStart = performance.now() / 1000;
+      // Called after React rendered the new status text, so widths are current.
+      measureLabels();
     },
     setActive(next) {
       if (next === active) return;
