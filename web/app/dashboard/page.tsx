@@ -66,6 +66,13 @@ export default function DashboardPage() {
     window.addEventListener("hashchange", syncFromHash);
     return () => window.removeEventListener("hashchange", syncFromHash);
   }, []);
+
+  // Name the open section in the tab title, so several dashboard tabs (or
+  // browser history entries) can be told apart.
+  useEffect(() => {
+    const label = TABS.find((t) => t.key === tab)?.label ?? "Overview";
+    document.title = `${label} · Dashboard · SecureDerm AI`;
+  }, [tab]);
   const [hospital, setHospital] = useState<HospitalInfo | null>(null);
 
   /* Auth guard: the session lives in an httpOnly cookie, so we can't just
