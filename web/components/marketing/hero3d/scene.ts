@@ -194,14 +194,35 @@ export function createFederationScene(host: HTMLElement, initial: ThemeColors): 
   const ahead = new THREE.Vector3();
   const easeInOut = (t: number) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
 
+  // Camera and pointer state (wired up below, read every frame).
+  let pullBack = 1;
+  let dragging = false;
+  let spin = 0;
+  const pointer = { x: 0, y: 0 };
+  const look = { x: 0, y: 0 };
+  const lean = new THREE.Vector3();
+
   function animate(time: number, dt: number) {
     const ease = 1 - Math.exp(-dt * 5);
     const target = TARGETS[phase];
     for (const k of ["train", "up", "agg", "down"] as const) weight[k] += (target[k] - weight[k]) * ease;
     const sincePhase = time - phaseStart;
 
-    // The whole model turns slowly, like a piece on a turntable.
-    world.rotation.y += dt * 0.06;
+    // The whole model turns slowly, like a piece on a turntable; a drag adds
+    // spin that dies away.
+    if (!dragging) {
+      world.rotation.y += dt * (0.06 + spin);
+      spin *= Math.exp(-dt * 2.2);
+    }
+
+    // The camera leans toward the pointer a little.
+    look.x += (pointer.x - look.x) * (1 - Math.exp(-dt * 3));
+    look.y += (pointer.y - look.y) * (1 - Math.exp(-dt * 3));
+    camera.position
+      .copy(CAMERA_HOME)
+      .multiplyScalar(pullBack)
+      .add(lean.set(look.x * 1.1, -look.y * 0.6, 0));
+    camera.lookAt(LOOK_AT);
 
     hospitals.forEach((h, i) => {
       const stagger = Math.min(1, Math.max(0, sincePhase * 2.2 - i * 0.18));
@@ -263,7 +284,7 @@ export function createFederationScene(host: HTMLElement, initial: ThemeColors): 
     if (!w || !h) return;
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
-    const pullBack = Math.max(1, 1.3 / camera.aspect);
+    pullBack = Math.max(1, 1.3 / camera.aspect);
     camera.position.copy(CAMERA_HOME).multiplyScalar(pullBack);
     camera.lookAt(LOOK_AT);
     camera.updateProjectionMatrix();
@@ -271,6 +292,51 @@ export function createFederationScene(host: HTMLElement, initial: ThemeColors): 
   const ro = new ResizeObserver(resize);
   ro.observe(host);
   resize();
+
+  // ── Pointer: lean toward a hovering mouse; drag sideways to spin. ──
+  // Touch keeps vertical panning for the page (touch-action: pan-y), so only
+  // a sideways swipe turns the model.
+  canvas.style.touchAction = "pan-y";
+  canvas.style.cursor = "grab";
+  const finePointer = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+  let dragX = 0;
+  let dragVelocity = 0;
+  const onMove = (e: PointerEvent) => {
+    const rect = canvas.getBoundingClientRect();
+    if (finePointer) {
+      pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      pointer.y = ((e.clientY - rect.top) / rect.height) * 2 - 1;
+    }
+    if (!dragging) return;
+    const dx = e.clientX - dragX;
+    dragX = e.clientX;
+    dragVelocity = (dx / rect.width) * Math.PI * 1.5;
+    world.rotation.y += dragVelocity;
+  };
+  const onDown = (e: PointerEvent) => {
+    dragging = true;
+    dragX = e.clientX;
+    dragVelocity = 0;
+    canvas.setPointerCapture(e.pointerId);
+    canvas.style.cursor = "grabbing";
+  };
+  const onUp = (e: PointerEvent) => {
+    if (!dragging) return;
+    dragging = false;
+    // Hand the last drag speed (radians per event, ~60 events/s) to the spin.
+    spin = THREE.MathUtils.clamp(dragVelocity * 60, -4, 4);
+    if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
+    canvas.style.cursor = "grab";
+  };
+  const onLeave = () => {
+    pointer.x = 0;
+    pointer.y = 0;
+  };
+  canvas.addEventListener("pointermove", onMove);
+  canvas.addEventListener("pointerdown", onDown);
+  canvas.addEventListener("pointerup", onUp);
+  canvas.addEventListener("pointercancel", onUp);
+  canvas.addEventListener("pointerleave", onLeave);
 
   let last = performance.now();
   const frame = (now: number) => {
@@ -298,6 +364,11 @@ export function createFederationScene(host: HTMLElement, initial: ThemeColors): 
     dispose() {
       renderer.setAnimationLoop(null);
       ro.disconnect();
+      canvas.removeEventListener("pointermove", onMove);
+      canvas.removeEventListener("pointerdown", onDown);
+      canvas.removeEventListener("pointerup", onUp);
+      canvas.removeEventListener("pointercancel", onUp);
+      canvas.removeEventListener("pointerleave", onLeave);
       disposables.forEach((d) => d.dispose());
       solids.forEach((m) => m.dispose());
       edges.forEach((m) => m.dispose());
