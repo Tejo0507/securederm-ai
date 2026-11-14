@@ -41,6 +41,18 @@ def _sign_in(client, email):
     return me.json()["id"], {auth_module.CSRF_HEADER_NAME: csrf}
 
 
+def test_new_databases_never_reuse_a_hospital_id():
+    email = "reuse-autoincrement@example.com"
+    with _client() as first:
+        deleted_id, headers = _sign_in(first, email)
+        assert first.request(
+            "DELETE", "/api/auth/account", headers=headers, json={"password": TEST_PASSWORD}
+        ).status_code == 200
+    with _client() as second:
+        new_id, _ = _sign_in(second, "reuse-autoincrement-next@example.com")
+    assert new_id > deleted_id
+
+
 class TestActivityFromBeforeTheAccountExisted:
     @pytest.fixture
     def log(self, tmp_path, monkeypatch):
