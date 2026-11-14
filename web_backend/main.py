@@ -218,13 +218,38 @@ async def readable_validation_error(request: Request, exc: RequestValidationErro
     signup/login renders as the literal text "[object Object]" instead of
     e.g. "Password too common". Flatten it to the first, most relevant
     message instead."""
-    first_error = exc.errors()[0]
-    field = first_error["loc"][-1] if first_error["loc"] else "input"
-    message = first_error["msg"]
     return JSONResponse(
         status_code=422,
-        content={"detail": f"{field}: {message}"},
+        content={"detail": validation_message(exc.errors()[0])},
     )
+
+
+_CUSTOM_PREFIX = "Value error, "
+
+
+def validation_message(error: dict) -> str:
+    """One validation error as a sentence a person can act on.
+
+    - Messages our own validators raise are already written for people;
+      pydantic only prefixes them with "Value error, ".
+    - The email library's explanations ("The part after the @-sign is a
+      special-use or reserved name...") are accurate but not helpful.
+    - Other form fields get a readable label; query parameters keep their
+      exact name, since that is what a caller has to fix.
+    """
+    loc = error.get("loc") or ()
+    field = str(loc[-1]) if loc else "input"
+    message = str(error.get("msg", "Invalid value"))
+    in_body = bool(loc) and loc[0] == "body"
+
+    if message.startswith(_CUSTOM_PREFIX):
+        return message[len(_CUSTOM_PREFIX):]
+    if in_body and "email" in field and "email address" in message:
+        return "Enter a valid email address."
+    if in_body:
+        label = field.replace("_", " ").capitalize()
+        return f"{label}: {message[:1].lower()}{message[1:]}"
+    return f"{field}: {message}"
 
 
 @app.exception_handler(Exception)
