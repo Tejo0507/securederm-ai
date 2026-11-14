@@ -9,6 +9,11 @@ export interface FederationSceneHandle {
   setPhase(phase: ScenePhase): void;
   /** Render loop on or off (off while the hero is scrolled away). */
   setActive(active: boolean): void;
+  /**
+   * HTML labels to pin over the scene: one per site in SITES order, then
+   * one for the hub. Positioned each frame with a CSS transform.
+   */
+  setLabels(elements: (HTMLElement | null)[]): void;
   dispose(): void;
 }
 
@@ -202,6 +207,40 @@ export function createFederationScene(host: HTMLElement, initial: ThemeColors): 
   const look = { x: 0, y: 0 };
   const lean = new THREE.Vector3();
 
+  // ── Labels: HTML pinned to projected anchor points, dimmed at the back. ──
+  let labels: (HTMLElement | null)[] = [];
+  const anchors = [
+    ...SITES.map((s) => new THREE.Vector3(s.x, 0.78, s.z)),
+    // The hub's label hangs off its front edge, facing the viewer whatever
+    // the rotation, so it never covers the hub or the model.
+    new THREE.Vector3(0, 0, 0.95),
+  ];
+  const projected = new THREE.Vector3();
+  function placeLabels() {
+    if (!labels.length) return;
+    world.updateMatrixWorld();
+    camera.updateMatrixWorld();
+    const { clientWidth: w, clientHeight: h } = host;
+    anchors.forEach((anchor, i) => {
+      const el = labels[i];
+      if (!el) return;
+      const isSite = i < SITES.length;
+      projected.copy(anchor);
+      if (isSite) projected.applyMatrix4(world.matrixWorld);
+      // How far toward the viewer this anchor has turned: -1 back, 1 front.
+      const facing = projected.z / RING_RADIUS;
+      projected.project(camera);
+      const x = (projected.x * 0.5 + 0.5) * w;
+      const y = (-projected.y * 0.5 + 0.5) * h;
+      const hang = isSite ? "-100%" : "0%"; // sites sit above their anchor, the hub below
+      el.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0) translate(-50%, ${hang})`;
+      if (isSite) {
+        el.style.opacity = (0.55 + 0.45 * THREE.MathUtils.clamp((facing + 1) / 2, 0, 1)).toFixed(2);
+        el.style.zIndex = String(Math.round((facing + 1) * 10));
+      }
+    });
+  }
+
   function animate(time: number, dt: number) {
     const ease = 1 - Math.exp(-dt * 5);
     const target = TARGETS[phase];
@@ -223,6 +262,7 @@ export function createFederationScene(host: HTMLElement, initial: ThemeColors): 
       .multiplyScalar(pullBack)
       .add(lean.set(look.x * 1.1, -look.y * 0.6, 0));
     camera.lookAt(LOOK_AT);
+    placeLabels();
 
     hospitals.forEach((h, i) => {
       const stagger = Math.min(1, Math.max(0, sincePhase * 2.2 - i * 0.18));
@@ -288,6 +328,7 @@ export function createFederationScene(host: HTMLElement, initial: ThemeColors): 
     camera.position.copy(CAMERA_HOME).multiplyScalar(pullBack);
     camera.lookAt(LOOK_AT);
     camera.updateProjectionMatrix();
+    placeLabels();
   }
   const ro = new ResizeObserver(resize);
   ro.observe(host);
@@ -350,6 +391,10 @@ export function createFederationScene(host: HTMLElement, initial: ThemeColors): 
 
   return {
     setColors: applyColors,
+    setLabels(elements) {
+      labels = elements;
+      placeLabels();
+    },
     setPhase(next) {
       if (next === phase) return;
       phase = next;

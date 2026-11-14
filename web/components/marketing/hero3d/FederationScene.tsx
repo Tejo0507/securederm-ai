@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import type { ThemeColors } from "@/lib/useThemeColors";
-import { createFederationScene, type FederationSceneHandle, type ScenePhase } from "./scene";
+import { createFederationScene, SITES, type FederationSceneHandle, type ScenePhase } from "./scene";
 
 export type { ScenePhase } from "./scene";
 
@@ -11,18 +11,28 @@ export interface FederationSceneProps {
   phase: ScenePhase;
   /** False while scrolled away: the render loop stops. */
   active: boolean;
+  round: number;
   className?: string;
 }
 
-/** React host for the three.js federation scene in ./scene. */
-export default function FederationScene({ colors, phase, active, className = "" }: FederationSceneProps) {
+const SITE_STATUS: Record<ScenePhase, string> = {
+  training: "training on site",
+  uploading: "sending update",
+  aggregating: "waiting",
+  distributing: "receiving model",
+};
+
+/** React host for the three.js federation scene in ./scene, plus its labels. */
+export default function FederationScene({ colors, phase, active, round, className = "" }: FederationSceneProps) {
   const host = useRef<HTMLDivElement>(null);
+  const labels = useRef<(HTMLDivElement | null)[]>([]);
   const handle = useRef<FederationSceneHandle | null>(null);
   const initialColors = useRef(colors);
 
   useEffect(() => {
     if (!host.current) return;
     const scene = createFederationScene(host.current, initialColors.current);
+    scene.setLabels(labels.current);
     handle.current = scene;
     return () => {
       scene.dispose();
@@ -34,11 +44,42 @@ export default function FederationScene({ colors, phase, active, className = "" 
   useEffect(() => handle.current?.setPhase(phase), [phase]);
   useEffect(() => handle.current?.setActive(active), [active]);
 
-  // The radial mask fades the floor grid out instead of cutting it at the box edge.
+  const aggregating = phase === "aggregating";
+
   return (
-    <div
-      ref={host}
-      className={`absolute inset-0 [mask-image:radial-gradient(closest-side,black_72%,transparent)] ${className}`}
-    />
+    <div className={`absolute inset-0 ${className}`}>
+      {/* The radial mask fades the floor grid out instead of cutting it at the box edge. */}
+      <div ref={host} className="absolute inset-0 [mask-image:radial-gradient(closest-side,black_72%,transparent)]" />
+      <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
+        {SITES.map((site, i) => (
+          <div
+            key={site.id}
+            ref={(el) => {
+              labels.current[i] = el;
+            }}
+            className="absolute left-0 top-0 whitespace-nowrap rounded-md border border-line bg-surface/90 px-2 py-1 shadow-raise backdrop-blur-sm will-change-transform"
+          >
+            <p className="text-[11px] font-semibold leading-tight text-ink">{site.label}</p>
+            <p
+              className={`font-mono text-[10px] leading-tight transition-colors ${
+                phase === "training" ? "text-accent-ink" : "text-ink-3"
+              }`}
+            >
+              {SITE_STATUS[phase]}
+            </p>
+          </div>
+        ))}
+        <div
+          ref={(el) => {
+            labels.current[SITES.length] = el;
+          }}
+          className={`absolute left-0 top-0 z-30 whitespace-nowrap rounded-md border px-2 py-1 font-mono text-[10px] shadow-raise transition-colors will-change-transform ${
+            aggregating ? "border-accent bg-accent text-accent-on" : "border-ink/80 bg-ink text-canvas"
+          }`}
+        >
+          Aggregator · FedAvg · R{round}
+        </div>
+      </div>
+    </div>
   );
 }
