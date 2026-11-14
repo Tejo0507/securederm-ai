@@ -6,6 +6,7 @@ import { apiFetch, ApiError } from "@/lib/api";
 import type { HospitalInfo } from "@/lib/types";
 import { expectSessionEnd, onSessionEnded, SESSION_ENDED_REDIRECT } from "@/lib/session";
 import { useIdleTimeout } from "@/lib/useIdleTimeout";
+import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import IdleWarning from "@/components/IdleWarning";
 import TabBar, { panelId, tabId, type TabDef } from "@/components/dashboard/TabBar";
 import OverviewTab from "@/components/dashboard/OverviewTab";
@@ -69,10 +70,7 @@ export default function DashboardPage() {
 
   // Name the open section in the tab title, so several dashboard tabs (or
   // browser history entries) can be told apart.
-  useEffect(() => {
-    const label = TABS.find((t) => t.key === tab)?.label ?? "Overview";
-    document.title = `${label} · Dashboard · SecureDerm AI`;
-  }, [tab]);
+  useDocumentTitle(`${TABS.find((t) => t.key === tab)?.label ?? "Overview"} · Dashboard · SecureDerm AI`);
   const [hospital, setHospital] = useState<HospitalInfo | null>(null);
 
   /* Auth guard: the session lives in an httpOnly cookie, so we can't just
