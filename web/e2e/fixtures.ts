@@ -26,6 +26,7 @@ export const test = base.extend<{ allowConsole: (pattern: RegExp) => void }>({
 });
 
 export { expect };
+export type { Page };
 
 /** Fails if the page scrolls sideways, naming the widest offenders. */
 export async function expectNoHorizontalOverflow(page: Page) {
