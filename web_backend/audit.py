@@ -84,6 +84,30 @@ def audit(action: str, hospital_id: int | None = None, **fields) -> None:
         logging.getLogger("web_backend").exception("Could not write audit event")
 
 
+def read_account_events(
+    hospital,
+    limit: int = 100,
+    actions: set[str] | None = None,
+    since: datetime | None = None,
+) -> list[dict]:
+    """`read_events` for one account, never reaching back before it existed.
+
+    Events are keyed by hospital id, and SQLite gives a deleted account's id
+    to the next signup, so without this a new account would list (and
+    export) its predecessor's logins, predictions and deletion.
+    """
+    created = getattr(hospital, "created_at", None)
+    if created is not None:
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        # Event times have whole seconds; keep the account's own first ones.
+        created = created.replace(microsecond=0)
+        if since is not None and since.tzinfo is None:
+            since = since.replace(tzinfo=timezone.utc)
+        since = created if since is None else max(since, created)
+    return read_events(hospital.id, limit, actions=actions, since=since)
+
+
 def read_events(
     hospital_id: int,
     limit: int = 100,

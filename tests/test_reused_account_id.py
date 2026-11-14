@@ -7,7 +7,6 @@ alone (session tokens, audit events) would then carry over.
 
 import json
 import secrets
-from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -38,7 +37,66 @@ def _sign_in(client, email):
     client.post("/api/auth/verify-email", json={"token": signup.json()["dev_verification_token"]})
     me = client.get("/api/auth/me")
     assert me.status_code == 200
-    return me.json()["id"], {auth_module.CSRF_HEADER_NAME: client.cookies.get(auth_module.CSRF_COOKIE_NAME)}
+    csrf = client.cookies.get(auth_module.CSRF_COOKIE_NAME)
+    return me.json()["id"], {auth_module.CSRF_HEADER_NAME: csrf}
+
+
+class TestActivityFromBeforeTheAccountExisted:
+    @pytest.fixture
+    def log(self, tmp_path, monkeypatch):
+        from web_backend import audit as audit_module
+
+        path = tmp_path / "audit.log"
+        monkeypatch.setattr(audit_module, "AUDIT_LOG_PATH", path)
+        return path
+
+    def _plant_predecessor_events(self, log, hospital_id):
+        """Prepend events a deleted account with this id left behind."""
+        old = [
+            {"ts": "2026-01-01T09:00:00+00:00", "action": "login", "hospital_id": hospital_id},
+            {"ts": "2026-01-01T09:05:00+00:00", "action": "prediction", "hospital_id": hospital_id},
+            {
+                "ts": "2026-01-01T09:10:00+00:00",
+                "action": "account_deleted",
+                "hospital_id": hospital_id,
+            },
+        ]
+        current = log.read_text(encoding="utf-8") if log.exists() else ""
+        log.write_text("".join(json.dumps(e) + "\n" for e in old) + current, encoding="utf-8")
+
+    def test_activity_starts_at_signup(self, log):
+        with _client() as client:
+            hospital_id, _ = _sign_in(client, "reuse-activity@example.com")
+            self._plant_predecessor_events(log, hospital_id)
+
+            actions = [e["action"] for e in client.get("/api/auth/activity").json()]
+            assert actions, "the account's own events should still be listed"
+            assert "account_deleted" not in actions
+            assert "prediction" not in actions
+
+    def test_explicit_since_cannot_reach_further_back(self, log):
+        with _client() as client:
+            hospital_id, _ = _sign_in(client, "reuse-since@example.com")
+            self._plant_predecessor_events(log, hospital_id)
+
+            events = client.get("/api/auth/activity?since=2000-01-01T00:00:00Z").json()
+            assert all(e["ts"] >= "2026-01-02" for e in events)
+
+    def test_data_export_leaves_out_the_predecessor(self, log):
+        with _client() as client:
+            hospital_id, _ = _sign_in(client, "reuse-export@example.com")
+            self._plant_predecessor_events(log, hospital_id)
+
+            activity = client.get("/api/auth/export").json()["activity"]
+            assert "account_deleted" not in [e["action"] for e in activity]
+
+    def test_the_accounts_first_events_are_kept(self, log):
+        # Event times are whole seconds while created_at is not; the signup's
+        # own events in that first second must survive the cut-off.
+        with _client() as client:
+            _sign_in(client, "reuse-first-second@example.com")
+            actions = [e["action"] for e in client.get("/api/auth/activity").json()]
+            assert "email_verified" in actions
 
 
 class TestSessionsIssuedBeforeTheAccountExisted:
@@ -50,7 +108,9 @@ class TestSessionsIssuedBeforeTheAccountExisted:
             # created: exactly what a deleted predecessor's session looks like.
             real_time = auth_module.time.time
             monkeypatch.setattr(auth_module.time, "time", lambda: real_time() - 3600)
-            stale = auth_module.create_token({"hospital_id": hospital_id, "email": "someone-else@example.com"})
+            stale = auth_module.create_token(
+                {"hospital_id": hospital_id, "email": "someone-else@example.com"}
+            )
             monkeypatch.setattr(auth_module.time, "time", real_time)
 
         with _client() as attacker:
