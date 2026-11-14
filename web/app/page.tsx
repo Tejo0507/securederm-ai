@@ -4,6 +4,7 @@ import Footer from "@/components/Footer";
 import Reveal from "@/components/marketing/Reveal";
 import Hero3D from "@/components/marketing/hero3d/Hero3D";
 import { buttonClass } from "@/components/ui/Button";
+import Tilt from "@/components/ui/Tilt";
 import {
   IconArrowRight,
   IconCheck,
@@ -187,7 +188,7 @@ export default function Home() {
               {STEPS.map((s, i) => (
                 <li key={s.title} className="relative">
                   <Reveal delay={i * 0.06} className="flex gap-5 lg:block">
-                    <span className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line-strong bg-surface font-mono text-xs font-medium text-ink">
+                    <span className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line-strong bg-surface font-mono text-xs font-medium text-ink shadow-edge-neutral">
                       {String(i + 1).padStart(2, "0")}
                     </span>
                     <div className="lg:mt-5">
@@ -211,7 +212,7 @@ export default function Home() {
           </Reveal>
 
           <Reveal delay={0.08}>
-            <div className="mt-12 grid overflow-hidden rounded-xl border border-line bg-surface shadow-raise md:grid-cols-2">
+            <Tilt max={2.5} className="mt-12 grid rounded-xl border border-line bg-surface shadow-slab md:grid-cols-2">
               <div className="p-6 sm:p-8">
                 <div className="flex items-center gap-2.5">
                   <span className="flex h-7 w-7 items-center justify-center rounded-full bg-ink text-canvas">
@@ -228,7 +229,8 @@ export default function Home() {
                   ))}
                 </ul>
               </div>
-              <div className="border-t border-line bg-canvas/50 p-6 sm:p-8 md:border-l md:border-t-0">
+              {/* Rounded to match the card: a tilting card can't clip with overflow-hidden. */}
+              <div className="rounded-b-xl border-t border-line bg-canvas/50 p-6 sm:p-8 md:rounded-bl-none md:rounded-r-xl md:border-l md:border-t-0">
                 <div className="flex items-center gap-2.5">
                   <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent text-accent-on">
                     <IconArrowRight size={14} />
@@ -244,22 +246,27 @@ export default function Home() {
                   ))}
                 </ul>
               </div>
-            </div>
+            </Tilt>
           </Reveal>
 
-          <div className="mt-16 grid gap-px overflow-hidden rounded-xl border border-line bg-line sm:grid-cols-2">
+          {/* Separate slabs that tilt toward the pointer; the icon floats highest,
+              the title a step below, the body on the face. */}
+          <div className="mt-16 grid gap-5 sm:grid-cols-2">
             {CAPABILITIES.map((c, i) => (
               <Reveal key={c.title} delay={i * 0.05} className="h-full">
-                <article className="group h-full bg-surface p-6 transition-colors duration-200 hover:bg-canvas sm:p-8">
-                  <div className="flex items-center justify-between">
-                    <span className="flex h-10 w-10 items-center justify-center rounded-lg border border-line bg-canvas text-accent transition-colors group-hover:border-accent/40">
+                <Tilt
+                  as="article"
+                  className="h-full rounded-xl border border-line bg-surface p-6 shadow-slab hover:shadow-lift sm:p-8"
+                >
+                  <div className="lift-2 flex items-center justify-between">
+                    <span className="flex h-11 w-11 items-center justify-center rounded-lg border border-accent/25 bg-accent-soft text-accent-ink shadow-edge-neutral">
                       {c.icon}
                     </span>
                     <span className="font-mono text-2xs text-ink-3">{String(i + 1).padStart(2, "0")}</span>
                   </div>
-                  <h3 className="mt-6 text-[17px] font-semibold tracking-[-0.01em] text-ink">{c.title}</h3>
+                  <h3 className="lift-1 mt-6 text-[17px] font-semibold tracking-[-0.01em] text-ink">{c.title}</h3>
                   <p className="mt-2 text-[15px] leading-relaxed text-ink-2">{c.body}</p>
-                </article>
+                </Tilt>
               </Reveal>
             ))}
           </div>

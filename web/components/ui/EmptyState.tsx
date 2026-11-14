@@ -19,7 +19,7 @@ export default function EmptyState({
       className={`flex flex-col items-center rounded border border-dashed border-line-strong bg-canvas/60 px-6 py-10 text-center ${className}`}
     >
       {icon && (
-        <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg border border-line bg-surface text-ink-3 shadow-raise">
+        <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg border border-line bg-surface text-ink-3 shadow-edge-neutral">
           {icon}
         </div>
       )}

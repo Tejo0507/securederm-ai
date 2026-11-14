@@ -58,7 +58,7 @@ export default function ModelInfoBanner() {
   ];
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-line bg-surface px-4 py-3 shadow-raise sm:flex-row sm:items-center sm:gap-6">
+    <div className="flex flex-col gap-3 rounded-lg border border-line bg-surface px-4 py-3 shadow-slab sm:flex-row sm:items-center sm:gap-6">
       <div className="flex min-w-0 items-center gap-3">
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-accent/25 bg-accent-soft text-accent-ink">
           <IconChip size={16} />
