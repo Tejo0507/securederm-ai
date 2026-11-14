@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { apiFetch, ApiError, mightHaveSession } from "@/lib/api";
 import Logo from "@/components/ui/Logo";
+import ThemeSwitch from "@/components/ThemeSwitch";
 import { buttonClass } from "@/components/ui/Button";
 import { IconArrowRight, IconMenu, IconX } from "@/components/ui/icons";
 
@@ -106,6 +107,7 @@ export default function Navbar() {
         </ul>
 
         <div className="flex items-center gap-2">
+          <ThemeSwitch className="mr-1 hidden md:inline-flex" />
           {loggedIn ? (
             <Link href="/dashboard" className={buttonClass("primary", "sm", "hidden sm:inline-flex")}>
               Open dashboard
@@ -159,6 +161,10 @@ export default function Navbar() {
                 </li>
               ))}
             </ul>
+            <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 border-t border-line px-4 py-3 sm:px-6">
+              <span className="text-[13px] text-ink-2">Theme</span>
+              <ThemeSwitch showLabels className="w-full max-w-[260px]" />
+            </div>
             <div className="mx-auto grid max-w-6xl grid-cols-2 gap-2 border-t border-line px-4 py-4 sm:px-6">
               {loggedIn ? (
                 <Link href="/dashboard" className={buttonClass("primary", "md", "col-span-2")}>
