@@ -13,6 +13,12 @@ def _utcnow() -> datetime:
 
 class Hospital(Base):
     __tablename__ = "hospitals"
+    # Without AUTOINCREMENT, SQLite gives a new row max(id) + 1, so deleting
+    # the newest account hands its id to the next signup, along with every
+    # file, rate-limit bucket and log line keyed by it. This only shapes
+    # newly created databases; existing ones rely on the created_at checks
+    # in auth.get_current_hospital and audit.read_account_events.
+    __table_args__ = {"sqlite_autoincrement": True}
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(200), nullable=False)
     email = Column(String(200), unique=True, nullable=False, index=True)
