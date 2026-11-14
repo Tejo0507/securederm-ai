@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
 import Providers from "@/components/Providers";
+import { themeInitScript } from "@/lib/themeScript";
 import "./globals.css";
 
 const sans = IBM_Plex_Sans({
@@ -37,7 +38,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     // data-scroll-behavior tells Next.js the smooth scrolling in globals.css is
     // ours, so it turns it off for route changes (which should jump to the top).
-    <html lang="en" className={`${sans.variable} ${mono.variable}`} data-scroll-behavior="smooth">
+    // suppressHydrationWarning: the theme script sets data-theme attributes on
+    // <html> before React hydrates, so the server's markup won't match there.
+    <html
+      lang="en"
+      className={`${sans.variable} ${mono.variable}`}
+      data-scroll-behavior="smooth"
+      suppressHydrationWarning
+    >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+      </head>
       <body className="min-h-screen font-sans">
         <a
           href="#main"
