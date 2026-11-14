@@ -8,7 +8,7 @@ import { defineConfig } from "@playwright/test";
  *   PW_CHANNEL=chrome npx playwright test  # or an installed Google Chrome
  */
 const WEB_URL = process.env.E2E_WEB_URL ?? "http://localhost:3000";
-export const API_URL = process.env.E2E_API_URL ?? "http://localhost:8001";
+const API_URL = process.env.E2E_API_URL ?? "http://localhost:8001";
 const CI = !!process.env.CI;
 
 export default defineConfig({
@@ -16,7 +16,9 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: CI,
   retries: CI ? 1 : 0,
-  workers: CI ? 2 : undefined,
+  // The dev server compiles pages on demand; more parallel tabs than this
+  // starve it and time out locally.
+  workers: CI ? 2 : 3,
   reporter: CI ? [["github"], ["html", { open: "never" }]] : "list",
   timeout: 45_000,
   expect: { timeout: 10_000 },
