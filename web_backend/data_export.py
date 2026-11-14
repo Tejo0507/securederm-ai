@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from web_backend.audit import read_events
+from web_backend.audit import read_account_events
 from web_backend.db_models import Dataset, Hospital
 from web_backend.prediction_history import MAX_EXPORT_ROWS, history_query, serialize_prediction
 
@@ -38,5 +38,5 @@ def build_data_export(db: Session, hospital: Hospital) -> dict:
             for d in datasets
         ],
         "predictions": [serialize_prediction(p) for p in predictions],
-        "activity": read_events(hospital.id, MAX_ACTIVITY_EVENTS),
+        "activity": read_account_events(hospital, MAX_ACTIVITY_EVENTS),
     }
