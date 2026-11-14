@@ -58,8 +58,8 @@ const FileDrop = forwardRef<
       }}
       onDragLeave={() => setOver(false)}
       onDrop={onDrop}
-      className={`group relative flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed px-6 py-8 text-center transition-colors duration-150 focus-within:border-accent focus-within:ring-[3px] focus-within:ring-accent/20 ${
-        over ? "border-accent bg-accent-soft/60" : "border-line-strong bg-canvas hover:border-ink-3 hover:bg-sunken/60"
+      className={`group relative flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed px-6 py-8 text-center shadow-[inset_0_2px_8px_rgb(var(--shadow)/0.07)] transition-[background-color,border-color,transform] duration-200 focus-within:border-accent focus-within:ring-[3px] focus-within:ring-accent/20 ${
+        over ? "scale-[1.01] border-accent bg-accent-soft/60" : "border-line-strong bg-canvas hover:border-ink-3 hover:bg-sunken/60"
       } ${disabled ? "pointer-events-none opacity-60" : ""}`}
     >
       <input
@@ -74,8 +74,8 @@ const FileDrop = forwardRef<
         {...rest}
       />
       <span
-        className={`flex h-10 w-10 items-center justify-center rounded-lg border bg-surface shadow-raise transition-colors ${
-          over ? "border-accent/50 text-accent" : "border-line text-ink-2 group-hover:text-ink"
+        className={`flex h-10 w-10 items-center justify-center rounded-lg border bg-surface transition-[color,border-color,transform,box-shadow] duration-200 ${
+          over ? "-translate-y-1.5 border-accent/50 text-accent shadow-lift" : "border-line text-ink-2 shadow-edge-neutral group-hover:-translate-y-0.5 group-hover:text-ink"
         }`}
       >
         {files.length > 0 ? <IconImage size={18} /> : <IconUpload size={18} />}
