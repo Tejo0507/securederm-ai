@@ -2,7 +2,7 @@ import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import Reveal from "@/components/marketing/Reveal";
-import HeroGraph from "@/components/marketing/HeroGraph";
+import Hero3D from "@/components/marketing/hero3d/Hero3D";
 import { buttonClass } from "@/components/ui/Button";
 import {
   IconArrowRight,
@@ -19,6 +19,12 @@ const FIGURES = [
   { value: "2,940", label: "training images" },
   { value: "0", label: "images leave a site" },
   { value: "ε-DP", label: "on every update" },
+];
+
+const PROOF = [
+  { icon: <IconMerge size={15} />, label: "FedAvg aggregation" },
+  { icon: <IconShield size={15} />, label: "ε-differential privacy" },
+  { icon: <IconChip size={15} />, label: "ResNet-18, on site" },
 ];
 
 const CAPABILITIES = [
@@ -70,22 +76,32 @@ export default function Home() {
       <main id="main">
         {/* Hero */}
         <section className="relative overflow-hidden border-b border-line">
-          <div className="mx-auto grid max-w-6xl items-center gap-12 px-4 pb-16 pt-10 sm:px-6 sm:pt-16 lg:grid-cols-[1.05fr_1fr] lg:gap-16 lg:pb-24 lg:pt-20">
+          {/* Engineering paper that fades out toward the copy, and a faint wash behind the model. */}
+          <div
+            aria-hidden="true"
+            className="grid-paper absolute inset-0 [mask-image:radial-gradient(ellipse_70%_80%_at_75%_45%,black,transparent_75%)]"
+          />
+          <div
+            aria-hidden="true"
+            className="absolute -right-40 top-10 h-[640px] w-[760px] rounded-full bg-[radial-gradient(closest-side,rgb(var(--accent)/0.10),transparent)]"
+          />
+          <div className="relative mx-auto grid max-w-6xl items-center gap-10 px-4 pb-14 pt-10 sm:px-6 sm:pt-14 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.08fr)] lg:gap-12 lg:pb-20 lg:pt-16">
             <div className="animate-fade-up">
               <p className="label-mono inline-flex items-center gap-2 text-accent-ink">
                 <span className="h-px w-6 bg-accent" />
                 Federated learning for wound imaging
               </p>
-              <h1 className="mt-5 text-[2.375rem] font-semibold leading-[1.05] tracking-[-0.035em] text-ink sm:text-[3.25rem] xl:text-[3.5rem]">
-                One wound model,
-                <br />
-                trained by every hospital.
-                <span className="block text-ink-3">Not one image shared.</span>
+              {/* Three short lines that never wrap mid-thought. The longest is ~8 font-sizes
+                  wide, so each breakpoint's size is chosen to fit its column. */}
+              <h1 className="mt-5 text-[2.5rem] font-semibold leading-[1.02] tracking-[-0.04em] text-ink sm:text-[3.5rem] lg:text-[3.25rem] xl:text-[3.75rem]">
+                <span className="block">One wound model.</span>
+                <span className="block">Every hospital.</span>
+                <span className="block text-ink-3">No images shared.</span>
               </h1>
-              <p className="mt-6 max-w-xl text-[17px] leading-relaxed text-ink-2">
+              <p className="mt-6 max-w-[34rem] text-[17px] leading-relaxed text-ink-2">
                 SecureDerm AI lets hospital networks build a shared wound classifier. Each site trains on
-                its own data behind its own firewall, and only noised, encrypted weight updates travel to
-                the aggregator.
+                its own data behind its own firewall; only noised, encrypted weight updates travel to the
+                aggregator.
               </p>
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                 <Link href="/signup" className={buttonClass("primary", "lg")}>
@@ -96,10 +112,18 @@ export default function Home() {
                   Watch a federated round
                 </Link>
               </div>
+              <ul className="mt-10 flex flex-wrap gap-x-6 gap-y-3 border-t border-line pt-6 text-[13px] text-ink-2">
+                {PROOF.map((p) => (
+                  <li key={p.label} className="flex items-center gap-2">
+                    <span className="text-accent">{p.icon}</span>
+                    {p.label}
+                  </li>
+                ))}
+              </ul>
             </div>
 
             <div className="animate-fade-up [animation-delay:120ms]">
-              <HeroGraph />
+              <Hero3D />
             </div>
           </div>
 
