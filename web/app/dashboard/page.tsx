@@ -8,6 +8,7 @@ import { expectSessionEnd, onSessionEnded, SESSION_ENDED_REDIRECT } from "@/lib/
 import { useIdleTimeout } from "@/lib/useIdleTimeout";
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import IdleWarning from "@/components/IdleWarning";
+import ThemeSwitch from "@/components/ThemeSwitch";
 import TabBar, { panelId, tabId, type TabDef } from "@/components/dashboard/TabBar";
 import OverviewTab from "@/components/dashboard/OverviewTab";
 import DataTab from "@/components/dashboard/DataTab";
@@ -175,6 +176,8 @@ export default function DashboardPage() {
         <div className="mx-auto flex h-14 max-w-[1440px] items-center justify-between gap-4 px-4 sm:px-6">
           <Logo href="/" />
           <div className="flex min-w-0 items-center gap-1 sm:gap-3">
+            <ThemeSwitch className="mr-1 shrink-0 sm:mr-0" />
+            <span className="hidden h-6 w-px bg-line sm:block" aria-hidden="true" />
             <div className="flex min-w-0 items-center gap-2.5">
               <span
                 aria-hidden="true"
