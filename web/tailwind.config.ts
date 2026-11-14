@@ -76,8 +76,14 @@ const config: Config = {
           from: { backgroundPosition: "200% 0" },
           to: { backgroundPosition: "-200% 0" },
         },
+        "grow-x": {
+          from: { transform: "scaleX(0)" },
+          to: { transform: "scaleX(1)" },
+        },
       },
       animation: {
+        // Duration is usually overridden inline to match what it measures.
+        "grow-x": "grow-x 1s linear both",
         "fade-up": "fade-up 360ms cubic-bezier(0.22, 1, 0.36, 1) both",
         shimmer: "shimmer 1.6s linear infinite",
       },
