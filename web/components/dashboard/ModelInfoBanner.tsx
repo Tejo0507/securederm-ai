@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, ApiError } from "@/lib/api";
 import type { ModelInfo } from "@/lib/types";
+import Button from "@/components/ui/Button";
 import Notice from "@/components/ui/Notice";
 import { formatBytes } from "@/components/ui/FileDrop";
 import { IconChip } from "@/components/ui/icons";
@@ -10,14 +11,33 @@ import { IconChip } from "@/components/ui/icons";
 /** Which model will answer, so a result can be traced to a model version. */
 export default function ModelInfoBanner() {
   const [info, setInfo] = useState<ModelInfo | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
+    setError(null);
     apiFetch<ModelInfo>("/api/model/info", { signal: controller.signal })
       .then(setInfo)
-      .catch(() => {});
+      .catch((err: unknown) => {
+        if (controller.signal.aborted) return; // unmounted or retried
+        setError(err instanceof ApiError ? err.message : "Could not load model details.");
+      });
     return () => controller.abort();
-  }, []);
+  }, [attempt]);
+
+  if (error) {
+    return (
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <Notice tone="warning" role="alert" title="Model details are unavailable" className="flex-1">
+          {error} You can still try a diagnosis; the server reports which model answered.
+        </Notice>
+        <Button variant="secondary" size="sm" onClick={() => setAttempt((a) => a + 1)} className="self-start sm:self-auto">
+          Try again
+        </Button>
+      </div>
+    );
+  }
 
   if (!info) return <div className="skeleton h-[58px] w-full rounded-lg" aria-hidden="true" />;
 
