@@ -63,10 +63,10 @@ const config: Config = {
       boxShadow: {
         raise: "0 1px 0 rgb(var(--shadow) / 0.04), 0 1px 3px rgb(var(--shadow) / 0.06)",
         float: "0 12px 32px -8px rgb(var(--shadow) / 0.22), 0 2px 6px rgb(var(--shadow) / 0.08)",
-        // A panel seen as a slab: a 2px underside plus a soft contact shadow.
-        slab: "0 2px 0 rgb(var(--line-strong) / 0.85), 0 6px 14px -8px rgb(var(--shadow) / 0.16)",
+        // A panel seen as a slab: a 3px underside plus a soft contact shadow.
+        slab: "0 3px 0 rgb(var(--line-strong)), 0 8px 16px -10px rgb(var(--shadow) / 0.18)",
         // The same slab lifted toward the viewer (hover on interactive surfaces).
-        lift: "0 4px 0 rgb(var(--line-strong) / 0.85), 0 22px 40px -18px rgb(var(--shadow) / 0.32), 0 6px 12px -6px rgb(var(--shadow) / 0.12)",
+        lift: "0 5px 0 rgb(var(--line-strong)), 0 22px 40px -18px rgb(var(--shadow) / 0.32), 0 6px 12px -6px rgb(var(--shadow) / 0.12)",
         // Pressable edges: an underside that a click squashes flat.
         "edge-accent": "0 3px 0 rgb(var(--accent-edge)), 0 6px 14px -6px rgb(var(--accent) / 0.45), inset 0 1px 0 rgb(255 255 255 / 0.16)",
         "edge-danger": "0 3px 0 rgb(var(--danger-edge)), 0 6px 14px -6px rgb(var(--danger) / 0.4), inset 0 1px 0 rgb(255 255 255 / 0.14)",

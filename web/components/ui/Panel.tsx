@@ -1,21 +1,30 @@
 import type { HTMLAttributes, ReactNode } from "react";
 
-/** The one container style used across the app: white sheet, hairline border, slight lift. */
+/**
+ * The one container style used across the app: a white slab with a hairline
+ * border and a visible underside. `interactive` panels (whole-card links or
+ * buttons) rise toward the viewer on hover and focus.
+ */
 export function Panel({
   children,
   className = "",
   as: Tag = "section",
   tone = "default",
+  interactive = false,
   ...rest
 }: {
   children: ReactNode;
   className?: string;
   as?: "section" | "div" | "form" | "article";
   tone?: "default" | "danger";
+  interactive?: boolean;
 } & Omit<HTMLAttributes<HTMLElement>, "children" | "className">) {
   const border = tone === "danger" ? "border-danger/25" : "border-line";
+  const lift = interactive
+    ? "transition-[transform,box-shadow] duration-300 ease-out hover:-translate-y-1 hover:shadow-lift focus-within:-translate-y-1 focus-within:shadow-lift motion-reduce:hover:translate-y-0"
+    : "";
   return (
-    <Tag className={`rounded-lg border ${border} bg-surface shadow-raise ${className}`} {...rest}>
+    <Tag className={`rounded-lg border ${border} bg-surface shadow-slab ${lift} ${className}`} {...rest}>
       {children}
     </Tag>
   );
@@ -62,7 +71,7 @@ export function StatStrip({
 }) {
   return (
     <dl
-      className={`grid grid-cols-2 overflow-hidden rounded-lg border border-line bg-surface shadow-raise lg:grid-cols-4 ${className}`}
+      className={`grid grid-cols-2 overflow-hidden rounded-lg border border-line bg-surface shadow-slab lg:grid-cols-4 ${className}`}
     >
       {stats.map((s, i) => (
         <div
