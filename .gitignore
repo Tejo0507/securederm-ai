@@ -56,3 +56,9 @@ node_modules/
 .next/
 out/
 *.tsbuildinfo
+
+# Playwright: end-to-end test output, and the browser tool's scratch files
+test-results/
+playwright-report/
+blob-report/
+.playwright-mcp/
