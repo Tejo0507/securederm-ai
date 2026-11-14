@@ -317,8 +317,8 @@ export function createFederationScene(host: HTMLElement, initial: ThemeColors): 
     edges.forEach((m, token) => m.color.set(c[token]));
     hemi.color.set(c.surface);
     hemi.groundColor.set(c.sunken);
-    hemi.intensity = c.dark ? 0.9 : 1.6;
-    sun.intensity = c.dark ? 1.4 : 1.9;
+    hemi.intensity = c.dark ? 1.7 : 1.6;
+    sun.intensity = c.dark ? 2.1 : 1.9;
     gridMaterial.color.set(c.line);
     shadowMaterial.opacity = c.dark ? 0.35 : 0.08;
     for (const { tube } of arcs) (tube.material as THREE.MeshBasicMaterial).color.set(c.lineStrong);
