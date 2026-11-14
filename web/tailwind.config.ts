@@ -90,8 +90,13 @@ const config: Config = {
           from: { transform: "scaleX(0)" },
           to: { transform: "scaleX(1)" },
         },
+        rise: {
+          from: { transform: "scaleY(0.15)", opacity: "0" },
+          to: { transform: "none", opacity: "1" },
+        },
       },
       animation: {
+        rise: "rise 420ms cubic-bezier(0.22, 1, 0.36, 1) both",
         // Duration is usually overridden inline to match what it measures.
         "grow-x": "grow-x 1s linear both",
         "fade-up": "fade-up 360ms cubic-bezier(0.22, 1, 0.36, 1) both",
