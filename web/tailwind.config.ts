@@ -5,6 +5,9 @@ const token = (name: string) => `rgb(var(--${name}) / <alpha-value>)`;
 
 const config: Config = {
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
+  // dark: variants follow the resolved theme attribute, not the OS directly,
+  // so a manual choice in the theme switch wins (see lib/theme.tsx).
+  darkMode: ["selector", '[data-theme="dark"]'],
   theme: {
     extend: {
       colors: {
