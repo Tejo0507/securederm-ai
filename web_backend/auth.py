@@ -7,6 +7,7 @@ import time
 import json
 import base64
 from collections import defaultdict, deque
+from datetime import timezone
 
 from fastapi import Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
@@ -299,6 +300,17 @@ def revoke_session_token(db: Session, token: str | None) -> None:
     db.commit()
 
 
+def account_created_ts(hospital: Hospital) -> float | None:
+    """When the account was created, as a unix time. SQLite stores
+    `created_at` as naive UTC with whole seconds."""
+    if hospital.created_at is None:
+        return None
+    created = hospital.created_at
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    return created.timestamp()
+
+
 async def get_current_hospital(
     request: Request,
     db: Session = Depends(get_db),
@@ -318,6 +330,12 @@ async def get_current_hospital(
     )
     if hospital is None:
         raise HTTPException(status_code=401, detail="Hospital not found")
+    # SQLite can hand a deleted account's id to the next signup. A session
+    # the deleted account still had open (another device) names that id, so
+    # without this check it would sign in as whoever registered next.
+    created = account_created_ts(hospital)
+    if created is not None and payload.get("iat", 0) < created:
+        raise HTTPException(status_code=401, detail="Session has been signed out")
     # "Sign out everywhere" sets a cut-off; a token issued before it (or one
     # with no issue time at all) no longer counts.
     if hospital.sessions_valid_after is not None and (
