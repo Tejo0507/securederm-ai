@@ -209,6 +209,21 @@
   }
 }
 
+/*
+ * Tilt cards (components/ui/Tilt.tsx). The rotation eases back slowly when
+ * the pointer leaves and follows quickly while it moves. Note: an ancestor
+ * or the card itself with overflow: hidden flattens the lift-* layers.
+ */
+.tilt {
+  transform: perspective(900px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg));
+  transition:
+    transform 600ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 300ms ease-out;
+}
+.tilt[data-tilting="true"] {
+  transition-duration: 120ms, 300ms;
+}
+
 /* The sweep across an image while it is being analyzed. */
 @keyframes scan {
   0% {
