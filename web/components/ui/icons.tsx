@@ -194,6 +194,13 @@ export const IconStop = (p: IconProps) => (
   </Icon>
 );
 
+export const IconPause = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="6.5" y="5" width="3.5" height="14" rx="1" />
+    <rect x="14" y="5" width="3.5" height="14" rx="1" />
+  </Icon>
+);
+
 export const IconImage = (p: IconProps) => (
   <Icon {...p}>
     <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
