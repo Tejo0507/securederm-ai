@@ -8,6 +8,7 @@ import Footer from "@/components/Footer";
 import PageIntro from "@/components/marketing/PageIntro";
 import { apiFetch } from "@/lib/api";
 import Badge from "@/components/ui/Badge";
+import DepthMeter from "@/components/ui/DepthMeter";
 import Button, { buttonClass } from "@/components/ui/Button";
 import EmptyState from "@/components/ui/EmptyState";
 import { IconAlert, IconChip, IconHospital } from "@/components/ui/icons";
@@ -129,7 +130,7 @@ export default function ModelsPage() {
                   {models.length === 1 ? "model" : "models"}
                 </p>
               </div>
-              <ul className="overflow-hidden rounded-xl border border-line bg-surface shadow-raise">
+              <ul className="overflow-hidden rounded-xl border border-line bg-surface shadow-slab">
                 {models.map((m) => {
                   const expanded = expandedId === m.id;
                   const pct = Math.max(0, Math.min(100, m.accuracy * 100));
@@ -157,8 +158,8 @@ export default function ModelsPage() {
                         <div className="col-span-1">
                           <dt className="label-mono text-ink-3">Accuracy</dt>
                           <dd className="mt-1.5 text-lg font-semibold text-ink tabular">{pct.toFixed(1)}%</dd>
-                          <dd className="mt-1.5 h-1 overflow-hidden rounded-full bg-sunken">
-                            <span className="block h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
+                          <dd className="mt-2">
+                            <DepthMeter value={pct / 100} label={`${m.model_name} accuracy`} segments={16} />
                           </dd>
                         </div>
                         <div>
