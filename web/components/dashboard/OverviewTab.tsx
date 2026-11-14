@@ -40,7 +40,7 @@ function ActionRow({
 }) {
   const inner = (
     <>
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-line bg-canvas text-ink-2 transition-colors group-hover:border-accent/40 group-hover:text-accent">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-line bg-surface text-ink-2 shadow-edge-neutral transition-[color,border-color,transform,box-shadow] duration-150 group-hover:-translate-y-0.5 group-hover:border-accent/40 group-hover:text-accent group-active:translate-y-[3px] group-active:shadow-pressed">
         {icon}
       </span>
       <span className="min-w-0 flex-1">
