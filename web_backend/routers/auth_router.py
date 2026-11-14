@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from config.settings import DEV_TOKEN_ECHO
-from web_backend.audit import audit, hash_identifier, read_events
+from web_backend.audit import audit, hash_identifier, read_account_events
 from web_backend.data_export import build_data_export
 from web_backend.database import get_db
 from web_backend.db_models import Dataset, Hospital, MLModel, Prediction
@@ -348,7 +348,7 @@ async def my_activity(
     """The account's own recent security-relevant events (logins, uploads,
     erasures, predictions), newest first — never anyone else's."""
     actions = {a.strip() for a in action.split(",") if a.strip()} if action else None
-    return read_events(hospital.id, limit, actions=actions, since=since)
+    return read_account_events(hospital, limit, actions=actions, since=since)
 
 
 @router.get("/me", response_model=HospitalResponse)
