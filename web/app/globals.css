@@ -25,8 +25,11 @@
   --accent-soft: 225 240 233;
   --accent-ink: 9 82 63;
   --on-accent: 255 255 255;
+  /* The darker underside of a raised accent surface (pressable buttons). */
+  --accent-edge: 6 66 50;
 
   --danger: 180 35 24;
+  --danger-edge: 120 20 12;
   --danger-hover: 152 27 18;
   --danger-soft: 252 236 234;
   --danger-ink: 150 30 20;
@@ -66,8 +69,10 @@
     --accent-soft: 20 46 36;
     --accent-ink: 132 223 187;
     --on-accent: 6 22 15;
+    --accent-edge: 30 120 88;
 
     --danger: 239 104 92;
+    --danger-edge: 150 52 44;
     --danger-hover: 246 132 121;
     --danger-soft: 52 22 20;
     --danger-ink: 248 150 140;
@@ -175,6 +180,24 @@
     );
     background-size: 200% 100%;
     @apply animate-shimmer rounded;
+  }
+
+  /*
+   * Depth. Surfaces are slabs with a visible underside; things you press sit
+   * on an edge that compresses. `.stage-3d` gives children a shared vanishing
+   * point; `.lift-*` pushes a child toward the viewer inside a tilted card.
+   */
+  .stage-3d {
+    perspective: 1000px;
+  }
+  .preserve-3d {
+    transform-style: preserve-3d;
+  }
+  .lift-1 {
+    transform: translateZ(18px);
+  }
+  .lift-2 {
+    transform: translateZ(36px);
   }
 
   /* Faint engineering grid behind hero areas. */
