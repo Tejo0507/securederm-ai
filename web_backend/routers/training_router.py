@@ -219,9 +219,12 @@ async def federated_rounds(
     _hospital: Hospital = Depends(get_current_hospital),
     db: Session = Depends(get_db),
 ):
+    # Newest first. Ordering by round number alone listed round 5 of every
+    # run ever made before round 4 of any of them, so once twenty old runs
+    # existed the latest run never appeared.
     rounds = (
         db.query(FederatedRound)
-        .order_by(FederatedRound.round_number.desc())
+        .order_by(FederatedRound.id.desc())
         .limit(20)
         .all()
     )
