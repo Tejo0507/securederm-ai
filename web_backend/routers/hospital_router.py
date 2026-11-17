@@ -41,6 +41,11 @@ MAX_PAGE_SIZE = 100
 router = APIRouter()
 
 
+def default_dataset_name(hospital_name: str) -> str:
+    """The title a hospital's dataset gets when its first images arrive."""
+    return f"{hospital_name} Dataset"[:200]
+
+
 @router.post("/datasets/upload")
 async def upload_dataset(
     request: Request,
@@ -110,7 +115,7 @@ async def upload_dataset(
     else:
         ds = Dataset(
             hospital_id=hospital.id,
-            name=f"{hospital.name} Dataset",
+            name=default_dataset_name(hospital.name),
             dataset_path=str(hospital_dir),
             image_count=actual_count,
         )
