@@ -322,7 +322,10 @@ async def network_stats(
     latest_round = db.query(FederatedRound).order_by(FederatedRound.id.desc()).first()
     best_loss = db.query(func.min(FederatedRound.avg_loss)).scalar()
     return {
-        "hospitals": db.query(func.count(Hospital.id)).scalar(),
+        # The same members the directory lists, so the two numbers agree.
+        "hospitals": db.query(func.count(Hospital.id))
+        .filter(Hospital.email_verified.is_(True))
+        .scalar(),
         "models": db.query(func.count(MLModel.id)).scalar(),
         "images": db.query(func.coalesce(func.sum(Dataset.image_count), 0)).scalar(),
         "rounds_recorded": db.query(func.count(FederatedRound.id)).scalar(),

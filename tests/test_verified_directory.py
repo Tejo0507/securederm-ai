@@ -54,6 +54,31 @@ def test_a_pending_signup_is_not_listed(client):
     assert f"Verif Probe Pending {tag}" not in names
 
 
+def test_network_totals_count_members_only(client):
+    sign_in(client, "totals")
+    before = client.get("/api/network/stats").json()["hospitals"]
+
+    _pending_signup("Totals Pending")
+    unchanged = client.get("/api/network/stats").json()["hospitals"]
+    with TestClient(app, base_url="https://testserver") as other:
+        sign_in(other, "totals-member")
+    grown = client.get("/api/network/stats").json()["hospitals"]
+
+    assert unchanged == before
+    assert grown == before + 1
+
+
+def test_the_total_matches_the_directory(client):
+    sign_in(client, "agree")
+    _pending_signup("Agree Pending")
+
+    listed = client.get("/api/hospitals?limit=100&offset=0").json()
+    total = client.get("/api/network/stats").json()["hospitals"]
+
+    if total <= 100:
+        assert len(listed) == total
+
+
 def test_search_does_not_find_a_pending_signup(client):
     tag = uuid.uuid4().hex[:6]
     _pending_signup(f"Hidden Pending {tag}")
