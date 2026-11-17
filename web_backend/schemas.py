@@ -14,10 +14,24 @@ _COMMON_WEAK_PASSWORDS = {
 
 
 class HospitalSignup(BaseModel):
-    name: str = Field(min_length=1, max_length=200)
+    name: str = Field(max_length=200)
     email: EmailStr
     password: str = Field(min_length=8, max_length=200)
     location: str = Field(default="", max_length=200)
+
+    @field_validator("name", "location", mode="before")
+    @classmethod
+    def _strip(cls, v):
+        # Without this a name of spaces passed the length check and created a
+        # hospital with no visible name; " St Mary's " was stored with its padding.
+        return v.strip() if isinstance(v, str) else v
+
+    @field_validator("name")
+    @classmethod
+    def _name_not_blank(cls, v: str) -> str:
+        if not v:
+            raise ValueError("Hospital name cannot be empty.")
+        return v
 
     @field_validator("email")
     @classmethod
