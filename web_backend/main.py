@@ -62,6 +62,18 @@ run_migrations()
 def _seed_models() -> None:
     """Populate the marketplace with sample models on first run."""
     db = SessionLocal()
+    try:
+        _add_sample_models(db)
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        # Closed even when the insert fails, so a failed start does not
+        # leave a connection (and SQLite's write lock) held.
+        db.close()
+
+
+def _add_sample_models(db) -> None:
     if db.query(MLModel).count() == 0:
         samples = [
             MLModel(
@@ -118,7 +130,6 @@ def _seed_models() -> None:
         ]
         db.add_all(samples)
         db.commit()
-    db.close()
 
 
 @asynccontextmanager
