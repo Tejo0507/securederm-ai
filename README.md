@@ -193,13 +193,16 @@ All routes below live under `/api`, need a signed-in session cookie, and (for an
 | `GET /datasets/summary` | Stored image count, disk usage, formats and quota used |
 | `GET /datasets/images` | The stored images (name, size, upload time only), newest first |
 | `DELETE /datasets/images/{name}` | Erase one stored image |
-| `GET /hospitals?q=` | The hospital directory, optionally searched by name or location |
+| `POST /datasets/upload` | Store images. The reply gives `uploaded` (files accepted), `duplicates` (already stored, so they added nothing) and `total_images` |
+| `GET /hospitals?q=` | The hospital directory (verified hospitals only), optionally searched by name or location |
 | `GET /models/{id}` | One marketplace model |
-| `GET /network/stats` | Network-wide totals and federated round figures (aggregates only) |
+| `GET /network/stats` | Network-wide totals and federated round figures (aggregates only; the hospital count is verified members) |
+| `GET /federated/rounds` | The 20 most recently recorded rounds, newest first |
+| `GET /training/metrics` | The latest 100 recorded rounds, oldest first |
 | `POST /training/stop` | Stop your running training simulation |
-| `GET /auth/activity` | Your audit trail. Filters: `action` (comma-separated), `since` (ISO-8601) |
+| `GET /auth/activity` | Your audit trail, including `training_started`, `training_stopped` and `training_completed`. Filters: `action` (comma-separated), `since` (ISO-8601) |
 | `GET /auth/export` | Download a JSON copy of your profile, dataset records, history and activity |
-| `PATCH /auth/me` | Change the hospital name and/or location |
+| `PATCH /auth/me` | Change the hospital name and/or location (a dataset still titled after the old name is renamed too) |
 | `POST /auth/logout-all` | End every session on the account |
 
 Two unauthenticated endpoints suit load balancers: `GET /api/health` (liveness) and `GET /api/health/ready`, which answers `503` if the database is down and `200 "degraded"` when only the trained model is missing.
