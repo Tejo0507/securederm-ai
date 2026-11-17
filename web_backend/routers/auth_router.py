@@ -14,6 +14,7 @@ from web_backend.database import get_db
 from web_backend.db_models import Dataset, Hospital, MLModel, Prediction
 from web_backend.email_service import send_verification_email
 from web_backend.routers.hospital_router import wipe_hospital_files
+from web_backend.routers.training_router import forget_hospital
 from web_backend.schemas import (
     ChangePasswordRequest,
     DeleteAccountRequest,
@@ -314,6 +315,7 @@ async def delete_account(
     db.delete(hospital)
     db.commit()
     wipe_hospital_files(hospital_id)
+    forget_hospital(hospital_id)
     audit("account_deleted", hospital_id)
     clear_session_cookies(response)
     return {"status": "account_deleted"}

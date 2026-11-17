@@ -54,6 +54,19 @@ def _state_for(hospital_id: int) -> dict:
     return _training_state.setdefault(hospital_id, _fresh_state())
 
 
+def forget_hospital(hospital_id: int) -> None:
+    """Stop a hospital's simulation and drop its live state.
+
+    Called when the account is deleted: otherwise the run keeps going, goes on
+    recording rounds under the deleted hospital's name, and the in-memory
+    entry lives until the process restarts.
+    """
+    task = _running.pop(hospital_id, None)
+    if task is not None and not task.done():
+        task.cancel()
+    _training_state.pop(hospital_id, None)
+
+
 @router.post("/training/start")
 async def start_training(
     request: Request,
