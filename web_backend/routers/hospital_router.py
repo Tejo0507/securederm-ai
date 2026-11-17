@@ -342,7 +342,10 @@ async def list_hospitals(
         default=None, max_length=100, description="Case-insensitive match on name or location"
     ),
 ):
-    query = db.query(Hospital)
+    # Only hospitals that proved they own their inbox. Pending signups are not
+    # part of the network yet, and listing them handed anyone with an account
+    # the names and locations of registrations nobody had confirmed.
+    query = db.query(Hospital).filter(Hospital.email_verified.is_(True))
     if q and q.strip():
         # Escape LIKE wildcards so a search for "100%" or "a_b" matches literally.
         escaped = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
