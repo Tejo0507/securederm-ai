@@ -50,6 +50,28 @@ class TestDeleteImage:
         assert client.get("/api/datasets").json()[0]["image_count"] == 1
         assert client.get("/api/datasets/summary").json()["images"] == 1
 
+    def test_erasing_the_last_image_removes_the_dataset_record(self, client):
+        headers, _ = sign_in(client, "del-last")
+        _upload(client, headers, (7, 7, 7))
+        (only,) = self._names(client)
+        assert len(client.get("/api/datasets").json()) == 1
+
+        resp = client.delete(f"/api/datasets/images/{only}", headers=headers)
+
+        assert resp.json() == {"deleted": only, "total_images": 0}
+        assert client.get("/api/datasets").json() == []
+
+    def test_a_new_upload_after_erasing_everything_starts_a_fresh_dataset(self, client):
+        headers, _ = sign_in(client, "del-restart")
+        _upload(client, headers, (8, 8, 8))
+        (only,) = self._names(client)
+        client.delete(f"/api/datasets/images/{only}", headers=headers)
+
+        _upload(client, headers, (9, 9, 9))
+
+        datasets = client.get("/api/datasets").json()
+        assert len(datasets) == 1 and datasets[0]["image_count"] == 1
+
     def test_unknown_image_is_404(self, client):
         headers, _ = sign_in(client, "del-missing")
         resp = client.delete(f"/api/datasets/images/{'b' * 32}.png", headers=headers)

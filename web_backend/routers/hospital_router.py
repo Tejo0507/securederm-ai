@@ -257,7 +257,12 @@ async def delete_dataset_image(
 
     remaining = sum(1 for p in path.parent.iterdir() if p.is_file())
     dataset = db.query(Dataset).filter(Dataset.hospital_id == hospital.id).first()
-    if dataset:
+    if dataset and remaining == 0:
+        # Erasing the last image leaves nothing to describe. Drop the record
+        # the way "delete all images" does, instead of listing an empty dataset.
+        db.delete(dataset)
+        db.commit()
+    elif dataset:
         dataset.image_count = remaining
         db.commit()
     audit("dataset_image_erased", hospital.id, images=1)
