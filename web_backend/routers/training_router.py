@@ -13,6 +13,8 @@ logger = logging.getLogger("web_backend.training")
 
 router = APIRouter()
 
+METRICS_HISTORY_LIMIT = 100
+
 
 def _fresh_state() -> dict:
     return {
@@ -199,7 +201,16 @@ async def training_metrics(
     # in-memory `_training_state` — that's per-hospital now, and "recent
     # rounds across the network" is supposed to be shared, unlike a live
     # per-hospital training status.
-    rounds = db.query(FederatedRound).order_by(FederatedRound.round_number).all()
+    # The latest METRICS_HISTORY_LIMIT rounds, oldest first so a chart can
+    # plot them as they come. This used to read the whole table, sorted by
+    # round number, which grows with every run and interleaves different runs.
+    newest = (
+        db.query(FederatedRound)
+        .order_by(FederatedRound.id.desc())
+        .limit(METRICS_HISTORY_LIMIT)
+        .all()
+    )
+    rounds = list(reversed(newest))
     return {
         "metrics": [
             {

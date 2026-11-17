@@ -53,6 +53,19 @@ def test_the_latest_run_comes_first_even_after_many_older_ones(client):
     assert [r["round_number"] for r in rounds[:5]] == [5, 4, 3, 2, 1]
 
 
+def test_metrics_are_bounded_and_end_with_the_latest_round(client):
+    for _ in range(25):
+        _record_run([3.0, 3.0, 3.0, 3.0, 3.0])
+    _record_run([0.5, 0.6, 0.7, 0.8, 0.9])
+
+    metrics = client.get("/api/training/metrics").json()["metrics"]
+
+    assert len(metrics) == 100
+    assert [m["avg_loss"] for m in metrics[-5:]] == [0.5, 0.6, 0.7, 0.8, 0.9]
+    assert [m["round"] for m in metrics[-5:]] == [1, 2, 3, 4, 5]
+    assert all(m["nodes"] == 2 for m in metrics)
+
+
 def test_the_list_is_still_capped_at_twenty(client):
     for _ in range(6):
         _record_run([2.0, 2.0, 2.0, 2.0, 2.0])
