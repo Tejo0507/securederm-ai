@@ -61,6 +61,7 @@ async def upload_dataset(
     existing_count = sum(1 for p in hospital_dir.iterdir() if p.is_file())
 
     saved = 0
+    duplicates = 0
     quota_hit = False
     for f in files:
         if not f.filename:
@@ -80,14 +81,18 @@ async def upload_dataset(
         except Exception:
             continue
         dest = hospital_dir / f"{hashlib.sha256(clean).hexdigest()[:32]}{ext}"
-        if not dest.exists():
+        if dest.exists():
+            # Same pixels as an image already stored: nothing to write, and
+            # leaving the file alone keeps its original upload time.
+            duplicates += 1
+        else:
             # Per-hospital cap so one account can't fill the server's disk.
             if existing_count >= MAX_IMAGES_PER_HOSPITAL:
                 quota_hit = True
                 break
             existing_count += 1
-        with open(dest, "wb") as out:
-            out.write(clean)
+            with open(dest, "wb") as out:
+                out.write(clean)
         saved += 1
 
     # Recomputed from what's actually on disk rather than incremented by
@@ -121,7 +126,14 @@ async def upload_dataset(
         )
 
     audit("dataset_upload", hospital.id, images=saved)
-    return {"uploaded": saved, "total_images": ds.image_count, "quota_reached": quota_hit}
+    # `uploaded` is every file accepted; `duplicates` is how many of those were
+    # already stored, so `uploaded - duplicates` is what actually grew the dataset.
+    return {
+        "uploaded": saved,
+        "duplicates": duplicates,
+        "total_images": ds.image_count,
+        "quota_reached": quota_hit,
+    }
 
 
 def wipe_hospital_files(hospital_id: int) -> int:
