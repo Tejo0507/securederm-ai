@@ -23,7 +23,20 @@ interface ActivityEntry {
   ts: string;
   action: string;
   images?: number;
+  rounds?: number;
+  round?: number;
+  rows?: number;
   ip?: string;
+}
+
+/** The short qualifier after an event's name ("6 images", "at round 3"), if it has one. */
+export function activityDetail(e: ActivityEntry): string | null {
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  if (e.action === "training_stopped" && typeof e.round === "number") return `at round ${e.round}`;
+  if (typeof e.rounds === "number") return plural(e.rounds, "round");
+  if (typeof e.images === "number") return plural(e.images, "image");
+  if (typeof e.rows === "number") return plural(e.rows, "row");
+  return null;
 }
 
 /** Shown when the summary cannot be read: zeros are truer than a spinner that never ends. */
@@ -190,9 +203,7 @@ export default function OverviewTab({ hospital, setTab }: { hospital: HospitalIn
                     <div className="flex min-w-0 flex-1 flex-col gap-0.5 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4">
                       <span className="text-sm text-ink first-letter:uppercase">
                         {e.action.replace(/_/g, " ")}
-                        {typeof e.images === "number" && (
-                          <span className="text-ink-3"> · {e.images} images</span>
-                        )}
+                        {activityDetail(e) && <span className="text-ink-3"> · {activityDetail(e)}</span>}
                       </span>
                       <time dateTime={e.ts} className="shrink-0 font-mono text-xs text-ink-3 tabular">
                         {new Date(e.ts).toLocaleString()}
