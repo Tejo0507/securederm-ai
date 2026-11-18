@@ -19,17 +19,11 @@ import {
   IconTrash,
 } from "@/components/ui/icons";
 import type { HistoryPage, HistorySummary } from "@/lib/types";
+import { formatServerTime } from "@/lib/time";
 
 const PAGE_SIZE = 20;
 
 type UnknownFilter = "all" | "unknown" | "recognized";
-
-/** The API stores naive UTC timestamps; without a zone `Date` would read them as local time. */
-function formatUtc(ts: string | null): string {
-  if (!ts) return "Not recorded";
-  const hasZone = /[zZ]|[+-]\d{2}:?\d{2}$/.test(ts);
-  return new Date(hasZone ? ts : `${ts}Z`).toLocaleString();
-}
 
 /** The day after a YYYY-MM-DD date, because the API's `until` is exclusive. */
 function nextDay(date: string): string {
@@ -386,7 +380,7 @@ export default function HistoryTab() {
                   {items.map((row) => (
                     <tr key={row.id} className="border-b border-line last:border-b-0 hover:bg-canvas/70">
                       <td className="whitespace-nowrap px-5 py-2.5 text-ink-2 tabular sm:pl-6">
-                        {formatUtc(row.created_at)}
+                        {formatServerTime(row.created_at)}
                       </td>
                       <td className="px-3 py-2.5 font-medium text-ink">{row.predicted_class}</td>
                       <td className="px-3 py-2.5 text-right text-ink tabular">
@@ -412,7 +406,7 @@ export default function HistoryTab() {
                           type="button"
                           onClick={() => deleteEntry(row.id)}
                           disabled={busy}
-                          aria-label={`Delete the ${row.predicted_class} entry from ${formatUtc(row.created_at)}`}
+                          aria-label={`Delete the ${row.predicted_class} entry from ${formatServerTime(row.created_at)}`}
                           className="inline-flex h-8 w-8 items-center justify-center rounded text-ink-3 transition-colors hover:bg-danger-soft hover:text-danger-ink disabled:opacity-40"
                         >
                           <IconTrash size={16} />

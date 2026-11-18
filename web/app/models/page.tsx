@@ -7,10 +7,12 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import PageIntro from "@/components/marketing/PageIntro";
 import { apiFetch } from "@/lib/api";
+import { formatServerDate } from "@/lib/time";
 import Badge from "@/components/ui/Badge";
 import DepthMeter from "@/components/ui/DepthMeter";
 import Button, { buttonClass } from "@/components/ui/Button";
 import EmptyState from "@/components/ui/EmptyState";
+import Notice from "@/components/ui/Notice";
 import { IconAlert, IconChip, IconHospital } from "@/components/ui/icons";
 
 interface Model {
@@ -130,6 +132,11 @@ export default function ModelsPage() {
                   {models.length === 1 ? "model" : "models"}
                 </p>
               </div>
+              <Notice tone="info" className="mb-4">
+                These entries are sample listings loaded when the platform starts. Their accuracy and hospital
+                counts are illustrative, not measured results. Diagnose uses the deployed checkpoint, whose
+                details are on the Diagnose tab.
+              </Notice>
               <ul className="overflow-hidden rounded-xl border border-line bg-surface shadow-slab">
                 {models.map((m) => {
                   const expanded = expandedId === m.id;
@@ -172,7 +179,7 @@ export default function ModelsPage() {
                         <div>
                           <dt className="label-mono text-ink-3">Published</dt>
                           <dd className="mt-1.5 text-sm text-ink tabular">
-                            {m.created_at ? new Date(m.created_at).toLocaleDateString() : "Not recorded"}
+                            {formatServerDate(m.created_at)}
                           </dd>
                         </div>
                       </dl>
