@@ -29,6 +29,9 @@ interface TrainingStatus {
   metrics: Metric[];
 }
 
+const ACTIVE_POLL_MS = 1500;
+const IDLE_POLL_MS = 8000;
+
 function logTone(log: string): string {
   if (/complete/i.test(log)) return "text-ok-ink";
   if (log.includes("uploading") || log.includes("merging")) return "text-accent-ink";
@@ -59,11 +62,14 @@ export default function TrainingTab() {
       });
   }, [router]);
 
+  // Follow a run closely, but an idle tab only needs an occasional look (a run
+  // started from another tab or device still shows up within a few seconds).
+  const watching = starting || !!status?.active;
   useEffect(() => {
     poll();
-    const interval = setInterval(poll, 1500);
+    const interval = setInterval(poll, watching ? ACTIVE_POLL_MS : IDLE_POLL_MS);
     return () => clearInterval(interval);
-  }, [poll]);
+  }, [poll, watching]);
 
   // Auto-scroll only within the logs container, not the whole page
   useEffect(() => {
