@@ -12,6 +12,7 @@ import Badge from "@/components/ui/Badge";
 import DepthMeter from "@/components/ui/DepthMeter";
 import Button, { buttonClass } from "@/components/ui/Button";
 import EmptyState from "@/components/ui/EmptyState";
+import Notice from "@/components/ui/Notice";
 import { IconAlert, IconChip, IconHospital } from "@/components/ui/icons";
 
 interface Model {
@@ -131,6 +132,11 @@ export default function ModelsPage() {
                   {models.length === 1 ? "model" : "models"}
                 </p>
               </div>
+              <Notice tone="info" className="mb-4">
+                These entries are sample listings loaded when the platform starts. Their accuracy and hospital
+                counts are illustrative, not measured results. Diagnose uses the deployed checkpoint, whose
+                details are on the Diagnose tab.
+              </Notice>
               <ul className="overflow-hidden rounded-xl border border-line bg-surface shadow-slab">
                 {models.map((m) => {
                   const expanded = expandedId === m.id;
