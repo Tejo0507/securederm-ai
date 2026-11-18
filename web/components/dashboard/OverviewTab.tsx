@@ -3,7 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api";
-import type { HospitalInfo } from "@/lib/types";
+import type { HospitalInfo, NetworkStats } from "@/lib/types";
 import type { Tab } from "@/components/dashboard/tabs";
 import SectionHeader from "@/components/dashboard/SectionHeader";
 import { Panel, PanelBody, PanelHeader, StatStrip } from "@/components/ui/Panel";
@@ -69,25 +69,28 @@ function ActionRow({
 
 export default function OverviewTab({ hospital, setTab }: { hospital: HospitalInfo; setTab: (t: Tab) => void }) {
   const [datasets, setDatasets] = useState<{ image_count: number }[] | null>(null);
-  const [models, setModels] = useState<unknown[] | null>(null);
-  const [hospitals, setHospitals] = useState<unknown[] | null>(null);
+  const [network, setNetwork] = useState<NetworkStats | null | "failed">(null);
   const [activity, setActivity] = useState<ActivityEntry[] | null>(null);
 
   useEffect(() => {
     apiFetch<{ image_count: number }[]>("/api/datasets").then(setDatasets).catch(() => setDatasets([]));
-    apiFetch<unknown[]>("/api/models").then(setModels).catch(() => setModels([]));
-    apiFetch<unknown[]>("/api/hospitals").then(setHospitals).catch(() => setHospitals([]));
+    // The list endpoints return one page (50 rows), so counting their rows
+    // stops being true once the network outgrows a page. The stats endpoint
+    // counts in the database.
+    apiFetch<NetworkStats>("/api/network/stats").then(setNetwork).catch(() => setNetwork("failed"));
     apiFetch<ActivityEntry[]>("/api/auth/activity?limit=8").then(setActivity).catch(() => setActivity([]));
   }, []);
 
   const totalImages = (datasets ?? []).reduce((sum, d) => sum + (d.image_count || 0), 0);
   const loadingValue = <span className="skeleton inline-block h-7 w-12 align-middle" aria-label="Loading" />;
+  const networkValue = (pick: (n: NetworkStats) => number) =>
+    network === null ? loadingValue : network === "failed" ? "n/a" : pick(network).toLocaleString();
 
   const stats = [
     { label: "Local images", value: datasets ? totalImages.toLocaleString() : loadingValue, hint: "Stored on this node" },
     { label: "Datasets", value: datasets ? String(datasets.length) : loadingValue, hint: "Upload batches" },
-    { label: "Network models", value: models ? String(models.length) : loadingValue, hint: "Published globally" },
-    { label: "Network hospitals", value: hospitals ? String(hospitals.length) : loadingValue, hint: "Registered nodes" },
+    { label: "Network models", value: networkValue((n) => n.models), hint: "Published globally" },
+    { label: "Network hospitals", value: networkValue((n) => n.hospitals), hint: "Verified nodes" },
   ];
 
   return (

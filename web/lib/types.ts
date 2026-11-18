@@ -7,6 +7,17 @@ export interface HospitalInfo {
   location?: string;
 }
 
+/** Network-wide totals from GET /api/network/stats (aggregates only). */
+export interface NetworkStats {
+  hospitals: number;
+  models: number;
+  images: number;
+  rounds_recorded: number;
+  latest_round: number | null;
+  latest_avg_loss: number | null;
+  best_avg_loss: number | null;
+}
+
 export interface PredictionResult {
   model_id?: string | null;
   predicted_class: string;
