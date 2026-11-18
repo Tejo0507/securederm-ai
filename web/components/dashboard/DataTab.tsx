@@ -18,6 +18,19 @@ import { IconDatabase, IconTrash, IconUpload } from "@/components/ui/icons";
 const UPLOAD_BATCH_MAX_FILES = 100;
 const UPLOAD_BATCH_MAX_BYTES = 20 * 1024 * 1024;
 
+/**
+ * "Added 3 new images, 2 already stored (5 in total)". Identical photos are
+ * kept once, so a count of files sent would not match the total.
+ */
+export function uploadSummary(accepted: number, duplicates: number, total: number): string {
+  const noun = (n: number) => `${n} ${n === 1 ? "image" : "images"}`;
+  const added = accepted - duplicates;
+  if (accepted === 0) return `No images were added (${noun(total)} stored)`;
+  if (added === 0) return `Nothing new: ${duplicates === 1 ? "that image was" : `all ${duplicates} images were`} already stored (${noun(total)} in total)`;
+  const already = duplicates > 0 ? `, ${duplicates} already stored` : "";
+  return `Added ${noun(added)}${already} (${total.toLocaleString()} in total)`;
+}
+
 interface Dataset {
   id: number;
   name: string;
@@ -130,20 +143,22 @@ export default function DataTab() {
     if (current.length > 0) batches.push(current);
 
     let uploaded = 0;
+    let duplicates = 0;
     let totalImages = 0;
     try {
       for (const batch of batches) {
         const fd = new FormData();
         for (const f of batch) fd.append("files", f);
-        const data = await apiFetch<{ uploaded: number; total_images: number }>("/api/datasets/upload", {
-          method: "POST",
-          body: fd,
-        });
+        const data = await apiFetch<{ uploaded: number; duplicates?: number; total_images: number }>(
+          "/api/datasets/upload",
+          { method: "POST", body: fd },
+        );
         uploaded += data.uploaded;
+        duplicates += data.duplicates ?? 0;
         totalImages = data.total_images;
       }
       setMsgIsError(false);
-      setMsg(`Uploaded ${uploaded} images (${totalImages} total)`);
+      setMsg(uploadSummary(uploaded, duplicates, totalImages));
       input.value = "";
       setSelected([]);
     } catch (err: unknown) {
