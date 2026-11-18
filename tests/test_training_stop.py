@@ -75,6 +75,31 @@ def test_can_start_again_after_stopping(client):
     _wait_until_idle(client)
 
 
+def test_deleting_the_account_ends_its_run_and_forgets_its_state(client):
+    from tests.support import PASSWORD
+
+    headers, _ = sign_in(client, "stop-delete")
+    hospital_id = client.get("/api/auth/me").json()["id"]
+    assert client.post("/api/training/start", headers=headers).json()["status"] == "started"
+    task = training_router._running[hospital_id]
+
+    resp = client.request(
+        "DELETE", "/api/auth/account", headers=headers, json={"password": PASSWORD}
+    )
+
+    assert resp.status_code == 200
+    assert hospital_id not in training_router._running
+    assert hospital_id not in training_router._training_state
+    deadline = time.time() + 5
+    while not task.done() and time.time() < deadline:
+        time.sleep(0.05)
+    assert task.cancelled() or task.done()
+
+
+def test_forgetting_a_hospital_that_never_trained_is_harmless():
+    training_router.forget_hospital(987_654_321)
+
+
 def test_a_stop_while_idle_after_stopping_reports_not_running(client):
     headers, _ = sign_in(client, "stop-twice")
     client.post("/api/training/start", headers=headers)

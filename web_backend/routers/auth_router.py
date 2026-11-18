@@ -13,7 +13,8 @@ from web_backend.data_export import build_data_export
 from web_backend.database import get_db
 from web_backend.db_models import Dataset, Hospital, MLModel, Prediction
 from web_backend.email_service import send_verification_email
-from web_backend.routers.hospital_router import wipe_hospital_files
+from web_backend.routers.hospital_router import default_dataset_name, wipe_hospital_files
+from web_backend.routers.training_router import forget_hospital
 from web_backend.schemas import (
     ChangePasswordRequest,
     DeleteAccountRequest,
@@ -314,6 +315,7 @@ async def delete_account(
     db.delete(hospital)
     db.commit()
     wipe_hospital_files(hospital_id)
+    forget_hospital(hospital_id)
     audit("account_deleted", hospital_id)
     clear_session_cookies(response)
     return {"status": "account_deleted"}
@@ -367,6 +369,14 @@ async def update_me(
     verify_csrf(request)
     changed = []
     if payload.name is not None and payload.name != hospital.name:
+        # Datasets are created with the hospital's name in theirs; keep the
+        # ones still carrying the default title in step with the rename.
+        old_title = default_dataset_name(hospital.name)
+        new_title = default_dataset_name(payload.name)
+        for dataset in db.query(Dataset).filter(
+            Dataset.hospital_id == hospital.id, Dataset.name == old_title
+        ):
+            dataset.name = new_title
         hospital.name = payload.name
         changed.append("name")
     if payload.location is not None and payload.location != hospital.location:

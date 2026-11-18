@@ -41,6 +41,11 @@ MAX_PAGE_SIZE = 100
 router = APIRouter()
 
 
+def default_dataset_name(hospital_name: str) -> str:
+    """The title a hospital's dataset gets when its first images arrive."""
+    return f"{hospital_name} Dataset"[:200]
+
+
 @router.post("/datasets/upload")
 async def upload_dataset(
     request: Request,
@@ -61,6 +66,7 @@ async def upload_dataset(
     existing_count = sum(1 for p in hospital_dir.iterdir() if p.is_file())
 
     saved = 0
+    duplicates = 0
     quota_hit = False
     for f in files:
         if not f.filename:
@@ -80,14 +86,18 @@ async def upload_dataset(
         except Exception:
             continue
         dest = hospital_dir / f"{hashlib.sha256(clean).hexdigest()[:32]}{ext}"
-        if not dest.exists():
+        if dest.exists():
+            # Same pixels as an image already stored: nothing to write, and
+            # leaving the file alone keeps its original upload time.
+            duplicates += 1
+        else:
             # Per-hospital cap so one account can't fill the server's disk.
             if existing_count >= MAX_IMAGES_PER_HOSPITAL:
                 quota_hit = True
                 break
             existing_count += 1
-        with open(dest, "wb") as out:
-            out.write(clean)
+            with open(dest, "wb") as out:
+                out.write(clean)
         saved += 1
 
     # Recomputed from what's actually on disk rather than incremented by
@@ -105,7 +115,7 @@ async def upload_dataset(
     else:
         ds = Dataset(
             hospital_id=hospital.id,
-            name=f"{hospital.name} Dataset",
+            name=default_dataset_name(hospital.name),
             dataset_path=str(hospital_dir),
             image_count=actual_count,
         )
@@ -121,7 +131,14 @@ async def upload_dataset(
         )
 
     audit("dataset_upload", hospital.id, images=saved)
-    return {"uploaded": saved, "total_images": ds.image_count, "quota_reached": quota_hit}
+    # `uploaded` is every file accepted; `duplicates` is how many of those were
+    # already stored, so `uploaded - duplicates` is what actually grew the dataset.
+    return {
+        "uploaded": saved,
+        "duplicates": duplicates,
+        "total_images": ds.image_count,
+        "quota_reached": quota_hit,
+    }
 
 
 def wipe_hospital_files(hospital_id: int) -> int:
@@ -240,7 +257,12 @@ async def delete_dataset_image(
 
     remaining = sum(1 for p in path.parent.iterdir() if p.is_file())
     dataset = db.query(Dataset).filter(Dataset.hospital_id == hospital.id).first()
-    if dataset:
+    if dataset and remaining == 0:
+        # Erasing the last image leaves nothing to describe. Drop the record
+        # the way "delete all images" does, instead of listing an empty dataset.
+        db.delete(dataset)
+        db.commit()
+    elif dataset:
         dataset.image_count = remaining
         db.commit()
     audit("dataset_image_erased", hospital.id, images=1)

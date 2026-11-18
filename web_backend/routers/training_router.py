@@ -5,6 +5,7 @@ import random
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
+from web_backend.audit import audit
 from web_backend.database import get_db, SessionLocal
 from web_backend.db_models import Hospital, FederatedRound
 from web_backend.auth import get_current_hospital, verify_csrf
@@ -54,6 +55,19 @@ def _state_for(hospital_id: int) -> dict:
     return _training_state.setdefault(hospital_id, _fresh_state())
 
 
+def forget_hospital(hospital_id: int) -> None:
+    """Stop a hospital's simulation and drop its live state.
+
+    Called when the account is deleted: otherwise the run keeps going, goes on
+    recording rounds under the deleted hospital's name, and the in-memory
+    entry lives until the process restarts.
+    """
+    task = _running.pop(hospital_id, None)
+    if task is not None and not task.done():
+        task.cancel()
+    _training_state.pop(hospital_id, None)
+
+
 @router.post("/training/start")
 async def start_training(
     request: Request,
@@ -75,6 +89,7 @@ async def start_training(
     _running[hospital.id] = task
     task.add_done_callback(_background_tasks.discard)
 
+    audit("training_started", hospital.id, rounds=5)
     return {"status": "started", "total_rounds": 5}
 
 
@@ -91,6 +106,7 @@ async def stop_training(
     if task is None or task.done() or not state["active"]:
         return {"status": "not_running"}
     task.cancel()
+    audit("training_stopped", hospital.id, round=state["round"])
     return {"status": "stopping", "round": state["round"]}
 
 
@@ -98,6 +114,7 @@ async def _simulate_training(hospital_id: int, hospital_name: str) -> None:
     state = _training_state[hospital_id]
     try:
         await _run_simulation(state, hospital_name)
+        audit("training_completed", hospital_id, rounds=state["round"])
     except asyncio.CancelledError:
         state["logs"].append("■ Training stopped.")
         raise
