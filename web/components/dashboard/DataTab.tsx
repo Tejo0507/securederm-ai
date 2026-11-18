@@ -7,6 +7,7 @@ import { expectSessionEnd } from "@/lib/session";
 import { useConfirm } from "@/components/ConfirmProvider";
 import SectionHeader from "@/components/dashboard/SectionHeader";
 import StorageSummary from "@/components/dashboard/StorageSummary";
+import StoredImages from "@/components/dashboard/StoredImages";
 import { Panel, PanelBody, PanelHeader } from "@/components/ui/Panel";
 import Button from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
@@ -224,6 +225,8 @@ export default function DataTab() {
       </Panel>
 
       <StorageSummary refreshKey={storageVersion} />
+
+      <StoredImages refreshKey={storageVersion} onChange={loadDatasets} />
 
       <Panel className="overflow-hidden">
         <PanelHeader
