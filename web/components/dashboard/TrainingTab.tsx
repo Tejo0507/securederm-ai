@@ -138,6 +138,11 @@ export default function TrainingTab() {
         }
       />
 
+      <Notice tone="info" title="This is a simulated run">
+        The five rounds are played out on the server with generated loss values and a stand-in partner hospital. A
+        run does not read your uploaded images and does not change the model that answers in Diagnose.
+      </Notice>
+
       {error && (
         <Notice tone="danger" role="alert">
           {error}
