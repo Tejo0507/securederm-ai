@@ -184,7 +184,7 @@ export default function DataTab() {
     <div className="space-y-6">
       <SectionHeader
         title="Datasets"
-        description="Wound images stored on this node. They are used for local training and never sent to other hospitals."
+        description="Wound images stored on this node. They are never sent to other hospitals."
       />
 
       <Panel as="form" onSubmit={handleUpload} aria-labelledby="upload-title">
