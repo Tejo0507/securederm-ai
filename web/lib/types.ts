@@ -7,6 +7,28 @@ export interface HospitalInfo {
   location?: string;
 }
 
+/** What this hospital has stored on the server, from GET /api/datasets/summary. */
+export interface DatasetSummary {
+  images: number;
+  total_bytes: number;
+  formats: Record<string, number>;
+  quota: number;
+  quota_used: number; // 0 to 1
+  oldest_upload: string | null;
+  newest_upload: string | null;
+}
+
+/** Network-wide totals from GET /api/network/stats (aggregates only). */
+export interface NetworkStats {
+  hospitals: number;
+  models: number;
+  images: number;
+  rounds_recorded: number;
+  latest_round: number | null;
+  latest_avg_loss: number | null;
+  best_avg_loss: number | null;
+}
+
 export interface PredictionResult {
   model_id?: string | null;
   predicted_class: string;

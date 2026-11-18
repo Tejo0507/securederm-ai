@@ -3,7 +3,8 @@
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api";
-import type { HospitalInfo } from "@/lib/types";
+import type { DatasetSummary, HospitalInfo, NetworkStats } from "@/lib/types";
+import { formatBytes } from "@/components/ui/FileDrop";
 import type { Tab } from "@/components/dashboard/tabs";
 import SectionHeader from "@/components/dashboard/SectionHeader";
 import { Panel, PanelBody, PanelHeader, StatStrip } from "@/components/ui/Panel";
@@ -22,8 +23,32 @@ interface ActivityEntry {
   ts: string;
   action: string;
   images?: number;
+  rounds?: number;
+  round?: number;
+  rows?: number;
   ip?: string;
 }
+
+/** The short qualifier after an event's name ("6 images", "at round 3"), if it has one. */
+export function activityDetail(e: ActivityEntry): string | null {
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  if (e.action === "training_stopped" && typeof e.round === "number") return `at round ${e.round}`;
+  if (typeof e.rounds === "number") return plural(e.rounds, "round");
+  if (typeof e.images === "number") return plural(e.images, "image");
+  if (typeof e.rows === "number") return plural(e.rows, "row");
+  return null;
+}
+
+/** Shown when the summary cannot be read: zeros are truer than a spinner that never ends. */
+const EMPTY_STORAGE: DatasetSummary = {
+  images: 0,
+  total_bytes: 0,
+  formats: {},
+  quota: 0,
+  quota_used: 0,
+  oldest_upload: null,
+  newest_upload: null,
+};
 
 function ActionRow({
   icon,
@@ -68,26 +93,35 @@ function ActionRow({
 }
 
 export default function OverviewTab({ hospital, setTab }: { hospital: HospitalInfo; setTab: (t: Tab) => void }) {
-  const [datasets, setDatasets] = useState<{ image_count: number }[] | null>(null);
-  const [models, setModels] = useState<unknown[] | null>(null);
-  const [hospitals, setHospitals] = useState<unknown[] | null>(null);
+  const [storage, setStorage] = useState<DatasetSummary | null>(null);
+  const [network, setNetwork] = useState<NetworkStats | null | "failed">(null);
   const [activity, setActivity] = useState<ActivityEntry[] | null>(null);
 
   useEffect(() => {
-    apiFetch<{ image_count: number }[]>("/api/datasets").then(setDatasets).catch(() => setDatasets([]));
-    apiFetch<unknown[]>("/api/models").then(setModels).catch(() => setModels([]));
-    apiFetch<unknown[]>("/api/hospitals").then(setHospitals).catch(() => setHospitals([]));
+    apiFetch<DatasetSummary>("/api/datasets/summary").then(setStorage).catch(() => setStorage(EMPTY_STORAGE));
+    // The list endpoints return one page (50 rows), so counting their rows
+    // stops being true once the network outgrows a page. The stats endpoint
+    // counts in the database.
+    apiFetch<NetworkStats>("/api/network/stats").then(setNetwork).catch(() => setNetwork("failed"));
     apiFetch<ActivityEntry[]>("/api/auth/activity?limit=8").then(setActivity).catch(() => setActivity([]));
   }, []);
 
-  const totalImages = (datasets ?? []).reduce((sum, d) => sum + (d.image_count || 0), 0);
   const loadingValue = <span className="skeleton inline-block h-7 w-12 align-middle" aria-label="Loading" />;
+  const networkValue = (pick: (n: NetworkStats) => number) =>
+    network === null ? loadingValue : network === "failed" ? "n/a" : pick(network).toLocaleString();
 
   const stats = [
-    { label: "Local images", value: datasets ? totalImages.toLocaleString() : loadingValue, hint: "Stored on this node" },
-    { label: "Datasets", value: datasets ? String(datasets.length) : loadingValue, hint: "Upload batches" },
-    { label: "Network models", value: models ? String(models.length) : loadingValue, hint: "Published globally" },
-    { label: "Network hospitals", value: hospitals ? String(hospitals.length) : loadingValue, hint: "Registered nodes" },
+    { label: "Local images", value: storage ? storage.images.toLocaleString() : loadingValue, hint: "Stored on this node" },
+    {
+      label: "Storage used",
+      value: storage ? formatBytes(storage.total_bytes) : loadingValue,
+      hint:
+        storage && storage.quota > 0
+          ? `${storage.images.toLocaleString()} of ${storage.quota.toLocaleString()} image quota`
+          : "Of your image quota",
+    },
+    { label: "Network models", value: networkValue((n) => n.models), hint: "Published globally" },
+    { label: "Network hospitals", value: networkValue((n) => n.hospitals), hint: "Verified nodes" },
   ];
 
   return (
@@ -169,9 +203,7 @@ export default function OverviewTab({ hospital, setTab }: { hospital: HospitalIn
                     <div className="flex min-w-0 flex-1 flex-col gap-0.5 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4">
                       <span className="text-sm text-ink first-letter:uppercase">
                         {e.action.replace(/_/g, " ")}
-                        {typeof e.images === "number" && (
-                          <span className="text-ink-3"> · {e.images} images</span>
-                        )}
+                        {activityDetail(e) && <span className="text-ink-3"> · {activityDetail(e)}</span>}
                       </span>
                       <time dateTime={e.ts} className="shrink-0 font-mono text-xs text-ink-3 tabular">
                         {new Date(e.ts).toLocaleString()}
