@@ -322,7 +322,10 @@ async def network_stats(
     latest_round = db.query(FederatedRound).order_by(FederatedRound.id.desc()).first()
     best_loss = db.query(func.min(FederatedRound.avg_loss)).scalar()
     return {
-        "hospitals": db.query(func.count(Hospital.id)).scalar(),
+        # The same members the directory lists, so the two numbers agree.
+        "hospitals": db.query(func.count(Hospital.id))
+        .filter(Hospital.email_verified.is_(True))
+        .scalar(),
         "models": db.query(func.count(MLModel.id)).scalar(),
         "images": db.query(func.coalesce(func.sum(Dataset.image_count), 0)).scalar(),
         "rounds_recorded": db.query(func.count(FederatedRound.id)).scalar(),
@@ -342,7 +345,10 @@ async def list_hospitals(
         default=None, max_length=100, description="Case-insensitive match on name or location"
     ),
 ):
-    query = db.query(Hospital)
+    # Only hospitals that proved they own their inbox. Pending signups are not
+    # part of the network yet, and listing them handed anyone with an account
+    # the names and locations of registrations nobody had confirmed.
+    query = db.query(Hospital).filter(Hospital.email_verified.is_(True))
     if q and q.strip():
         # Escape LIKE wildcards so a search for "100%" or "a_b" matches literally.
         escaped = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
