@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import type { HospitalInfo, NetworkStats } from "@/lib/types";
+import { formatServerTime } from "@/lib/time";
 import Button from "@/components/ui/Button";
 import { Input } from "@/components/ui/Field";
 import SectionHeader from "@/components/dashboard/SectionHeader";
@@ -200,7 +201,7 @@ export default function NetworkTab() {
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-[13px] text-ink tabular">{r.avg_loss.toFixed(4)}</td>
                       <td className="px-5 py-3 text-right font-mono text-xs text-ink-3 tabular sm:px-6">
-                        {r.created_at ? new Date(r.created_at).toLocaleString() : "Not recorded"}
+                        {formatServerTime(r.created_at)}
                       </td>
                     </tr>
                   ))}

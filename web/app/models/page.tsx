@@ -7,6 +7,7 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import PageIntro from "@/components/marketing/PageIntro";
 import { apiFetch } from "@/lib/api";
+import { formatServerDate } from "@/lib/time";
 import Badge from "@/components/ui/Badge";
 import DepthMeter from "@/components/ui/DepthMeter";
 import Button, { buttonClass } from "@/components/ui/Button";
@@ -172,7 +173,7 @@ export default function ModelsPage() {
                         <div>
                           <dt className="label-mono text-ink-3">Published</dt>
                           <dd className="mt-1.5 text-sm text-ink tabular">
-                            {m.created_at ? new Date(m.created_at).toLocaleDateString() : "Not recorded"}
+                            {formatServerDate(m.created_at)}
                           </dd>
                         </div>
                       </dl>

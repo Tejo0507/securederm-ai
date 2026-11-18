@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
+import { formatServerDate } from "@/lib/time";
 import { expectSessionEnd } from "@/lib/session";
 import { useConfirm } from "@/components/ConfirmProvider";
 import SectionHeader from "@/components/dashboard/SectionHeader";
@@ -270,7 +271,7 @@ export default function DataTab() {
                       <td className="px-5 py-3 font-medium text-ink sm:px-6">{d.name}</td>
                       <td className="px-4 py-3 text-right text-ink-2 tabular">{d.image_count.toLocaleString()}</td>
                       <td className="px-5 py-3 text-right font-mono text-xs text-ink-3 tabular sm:px-6">
-                        {d.created_at ? new Date(d.created_at).toLocaleDateString() : "Not recorded"}
+                        {formatServerDate(d.created_at)}
                       </td>
                     </tr>
                   ))}
