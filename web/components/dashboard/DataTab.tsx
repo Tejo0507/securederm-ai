@@ -6,6 +6,7 @@ import { apiFetch } from "@/lib/api";
 import { expectSessionEnd } from "@/lib/session";
 import { useConfirm } from "@/components/ConfirmProvider";
 import SectionHeader from "@/components/dashboard/SectionHeader";
+import StorageSummary from "@/components/dashboard/StorageSummary";
 import { Panel, PanelBody, PanelHeader } from "@/components/ui/Panel";
 import Button from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
@@ -52,8 +53,11 @@ export default function DataTab() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
+  // Bumped whenever the stored images change, so the storage panel reloads.
+  const [storageVersion, setStorageVersion] = useState(0);
 
   const loadDatasets = useCallback(() => {
+    setStorageVersion((v) => v + 1);
     apiFetch<Dataset[]>("/api/datasets")
       .then(setDatasets)
       .catch(() => setDatasets((d) => d ?? []));
@@ -218,6 +222,8 @@ export default function DataTab() {
           </div>
         </PanelBody>
       </Panel>
+
+      <StorageSummary refreshKey={storageVersion} />
 
       <Panel className="overflow-hidden">
         <PanelHeader
