@@ -3,7 +3,8 @@
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api";
-import type { HospitalInfo, NetworkStats } from "@/lib/types";
+import type { DatasetSummary, HospitalInfo, NetworkStats } from "@/lib/types";
+import { formatBytes } from "@/components/ui/FileDrop";
 import type { Tab } from "@/components/dashboard/tabs";
 import SectionHeader from "@/components/dashboard/SectionHeader";
 import { Panel, PanelBody, PanelHeader, StatStrip } from "@/components/ui/Panel";
@@ -24,6 +25,17 @@ interface ActivityEntry {
   images?: number;
   ip?: string;
 }
+
+/** Shown when the summary cannot be read: zeros are truer than a spinner that never ends. */
+const EMPTY_STORAGE: DatasetSummary = {
+  images: 0,
+  total_bytes: 0,
+  formats: {},
+  quota: 0,
+  quota_used: 0,
+  oldest_upload: null,
+  newest_upload: null,
+};
 
 function ActionRow({
   icon,
@@ -68,12 +80,12 @@ function ActionRow({
 }
 
 export default function OverviewTab({ hospital, setTab }: { hospital: HospitalInfo; setTab: (t: Tab) => void }) {
-  const [datasets, setDatasets] = useState<{ image_count: number }[] | null>(null);
+  const [storage, setStorage] = useState<DatasetSummary | null>(null);
   const [network, setNetwork] = useState<NetworkStats | null | "failed">(null);
   const [activity, setActivity] = useState<ActivityEntry[] | null>(null);
 
   useEffect(() => {
-    apiFetch<{ image_count: number }[]>("/api/datasets").then(setDatasets).catch(() => setDatasets([]));
+    apiFetch<DatasetSummary>("/api/datasets/summary").then(setStorage).catch(() => setStorage(EMPTY_STORAGE));
     // The list endpoints return one page (50 rows), so counting their rows
     // stops being true once the network outgrows a page. The stats endpoint
     // counts in the database.
@@ -81,14 +93,20 @@ export default function OverviewTab({ hospital, setTab }: { hospital: HospitalIn
     apiFetch<ActivityEntry[]>("/api/auth/activity?limit=8").then(setActivity).catch(() => setActivity([]));
   }, []);
 
-  const totalImages = (datasets ?? []).reduce((sum, d) => sum + (d.image_count || 0), 0);
   const loadingValue = <span className="skeleton inline-block h-7 w-12 align-middle" aria-label="Loading" />;
   const networkValue = (pick: (n: NetworkStats) => number) =>
     network === null ? loadingValue : network === "failed" ? "n/a" : pick(network).toLocaleString();
 
   const stats = [
-    { label: "Local images", value: datasets ? totalImages.toLocaleString() : loadingValue, hint: "Stored on this node" },
-    { label: "Datasets", value: datasets ? String(datasets.length) : loadingValue, hint: "Upload batches" },
+    { label: "Local images", value: storage ? storage.images.toLocaleString() : loadingValue, hint: "Stored on this node" },
+    {
+      label: "Storage used",
+      value: storage ? formatBytes(storage.total_bytes) : loadingValue,
+      hint:
+        storage && storage.quota > 0
+          ? `${storage.images.toLocaleString()} of ${storage.quota.toLocaleString()} image quota`
+          : "Of your image quota",
+    },
     { label: "Network models", value: networkValue((n) => n.models), hint: "Published globally" },
     { label: "Network hospitals", value: networkValue((n) => n.hospitals), hint: "Verified nodes" },
   ];

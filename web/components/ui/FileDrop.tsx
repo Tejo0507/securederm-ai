@@ -4,6 +4,7 @@ import { forwardRef, useState, type DragEvent, type ReactNode } from "react";
 import { IconImage, IconUpload } from "@/components/ui/icons";
 
 export function formatBytes(bytes: number): string {
+  if (bytes <= 0) return "0 KB";
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   return `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
