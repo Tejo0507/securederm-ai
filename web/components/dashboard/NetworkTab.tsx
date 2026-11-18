@@ -189,8 +189,11 @@ export default function NetworkTab() {
                   </tr>
                 </thead>
                 <tbody>
-                  {rounds.map((r) => (
-                    <tr key={r.round_number + (r.created_at || "")} className="border-b border-line last:border-b-0 hover:bg-canvas/60">
+                  {rounds.map((r, i) => (
+                    // Timestamps have whole-second resolution, so two hospitals finishing the same
+                    // round in the same second share round number and time. The list is replaced
+                    // wholesale on each load, so the position is a safe tie-breaker.
+                    <tr key={`${r.round_number}-${r.created_at ?? ""}-${i}`} className="border-b border-line last:border-b-0 hover:bg-canvas/60">
                       <td className="px-5 py-3 sm:px-6">
                         <span className="inline-flex h-6 min-w-[2.25rem] items-center justify-center rounded border border-line-strong bg-surface px-1.5 font-mono text-xs font-medium text-ink">
                           R{r.round_number}
