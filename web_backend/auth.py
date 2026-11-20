@@ -153,9 +153,12 @@ def enforce_auth_rate_limit(request: Request, bucket: str) -> None:
             attempts.popleft()
 
         if len(attempts) >= _RATE_LIMIT_MAX_ATTEMPTS:
+            # The oldest attempt leaving the window is what frees a slot.
+            retry_after = max(1, int(_RATE_LIMIT_WINDOW_SECONDS - (now - attempts[0])) + 1)
             raise HTTPException(
                 status_code=429,
                 detail="Too many attempts. Please try again later.",
+                headers={"Retry-After": str(retry_after)},
             )
 
         attempts.append(now)
