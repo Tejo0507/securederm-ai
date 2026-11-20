@@ -33,6 +33,7 @@ from pydantic import BaseModel, field_validator
 
 from aggregator.fedavg import federated_average
 from aggregator.robust import clip_update, file_sha256, sha256_hex
+from config.secure_compare import constant_time_equals
 from config.settings import (
     AGGREGATOR_ADMIN_TOKEN,
     AGGREGATOR_MAX_UPDATE_NORM,
@@ -332,11 +333,11 @@ def _validate_token(hospital_id: str, token: str) -> bool:
     node = registered_nodes.get(hospital_id)
     if node is None:
         return False
-    return secrets.compare_digest(node["token"], token or "")
+    return constant_time_equals(node["token"], token or "")
 
 
 def _is_admin_token(token: str | None) -> bool:
-    return bool(AGGREGATOR_ADMIN_TOKEN) and bool(token) and secrets.compare_digest(
+    return bool(AGGREGATOR_ADMIN_TOKEN) and bool(token) and constant_time_equals(
         AGGREGATOR_ADMIN_TOKEN, token
     )
 
@@ -351,7 +352,7 @@ def _validate_any_token(token: str | None) -> bool:
     if not token:
         return False
     return any(
-        secrets.compare_digest(node["token"], token)
+        constant_time_equals(node["token"], token)
         for node in registered_nodes.values()
     )
 
@@ -382,14 +383,14 @@ async def register_node(
     existing = registered_nodes.get(hospital_id)
 
     if existing is None:
-        if AGGREGATOR_REGISTRATION_KEY and not secrets.compare_digest(
+        if AGGREGATOR_REGISTRATION_KEY and not constant_time_equals(
             AGGREGATOR_REGISTRATION_KEY, x_registration_key or ""
         ):
             raise HTTPException(status_code=403, detail="Invalid registration key.")
         if len(registered_nodes) >= AGGREGATOR_MAX_NODES:
             raise HTTPException(status_code=503, detail="Node limit reached.")
 
-    if existing is not None and not secrets.compare_digest(
+    if existing is not None and not constant_time_equals(
         existing["token"], x_node_token or ""
     ):
         raise HTTPException(
