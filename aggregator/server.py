@@ -444,7 +444,7 @@ async def submit_update(
             )
         except Exception:
             raise HTTPException(status_code=400, detail="model_weights_b64 is not valid base64.")
-        if not secrets.compare_digest(actual, payload.weights_sha256.lower()):
+        if not constant_time_equals(actual, payload.weights_sha256.lower()):
             raise HTTPException(
                 status_code=400, detail="Weights failed their integrity check (corrupt upload)."
             )

@@ -85,6 +85,23 @@ def test_non_ascii_token_is_refused_on_update(client):
     assert response.status_code == 403
 
 
+def test_non_ascii_weights_digest_fails_the_integrity_check(client):
+    hospital_id, token = _enroll(client)
+    response = client.post(
+        "/training/update",
+        headers={"X-Node-Token": token},
+        json={
+            "hospital_id": hospital_id,
+            "model_weights_b64": "AAAA",
+            "num_samples": 5,
+            "training_loss": 0.5,
+            "weights_sha256": "dïgest",
+        },
+    )
+    assert response.status_code == 400
+    assert "integrity" in response.json()["detail"]
+
+
 def test_re_registering_with_a_non_ascii_token_is_a_conflict(client):
     hospital_id, _ = _enroll(client)
     response = client.post(
