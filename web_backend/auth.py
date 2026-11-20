@@ -121,14 +121,24 @@ _auth_attempts: dict[str, deque] = defaultdict(deque)
 _SWEEP_EVERY_N_CALLS = 1000
 _calls_since_sweep = 0
 
+# One lock for the whole table. The auth limiter runs on the event-loop thread
+# while the per-account limiter runs in worker threads (the prediction
+# endpoints are sync handlers), and both read, insert and — in the sweep —
+# delete keys of the same dict. Without a shared lock the sweep could raise
+# "dictionary changed size during iteration" in the middle of a login, or drop
+# a key a worker had just fetched, so that request's attempt went unrecorded.
+# Re-entrant because enforce_auth_rate_limit calls the sweep while holding it.
+_rate_limit_lock = threading.RLock()
+
 
 def _sweep_expired_rate_limit_entries(now: float) -> None:
-    stale_keys = [
-        k for k, attempts in _auth_attempts.items()
-        if not attempts or now - attempts[-1] > _RATE_LIMIT_WINDOW_SECONDS
-    ]
-    for k in stale_keys:
-        del _auth_attempts[k]
+    with _rate_limit_lock:
+        stale_keys = [
+            k for k, attempts in _auth_attempts.items()
+            if not attempts or now - attempts[-1] > _RATE_LIMIT_WINDOW_SECONDS
+        ]
+        for k in stale_keys:
+            del _auth_attempts[k]
 
 
 def enforce_auth_rate_limit(request: Request, bucket: str) -> None:
@@ -137,26 +147,27 @@ def enforce_auth_rate_limit(request: Request, bucket: str) -> None:
     client_host = request.client.host if request.client else "unknown"
     key = f"{bucket}:{client_host}"
     now = time.time()
-    attempts = _auth_attempts[key]
+    with _rate_limit_lock:
+        attempts = _auth_attempts[key]
 
-    while attempts and now - attempts[0] > _RATE_LIMIT_WINDOW_SECONDS:
-        attempts.popleft()
+        while attempts and now - attempts[0] > _RATE_LIMIT_WINDOW_SECONDS:
+            attempts.popleft()
 
-    if len(attempts) >= _RATE_LIMIT_MAX_ATTEMPTS:
-        raise HTTPException(
-            status_code=429,
-            detail="Too many attempts. Please try again later.",
-        )
+        if len(attempts) >= _RATE_LIMIT_MAX_ATTEMPTS:
+            # The oldest attempt leaving the window is what frees a slot.
+            retry_after = max(1, int(_RATE_LIMIT_WINDOW_SECONDS - (now - attempts[0])) + 1)
+            raise HTTPException(
+                status_code=429,
+                detail="Too many attempts. Please try again later.",
+                headers={"Retry-After": str(retry_after)},
+            )
 
-    attempts.append(now)
+        attempts.append(now)
 
-    _calls_since_sweep += 1
-    if _calls_since_sweep >= _SWEEP_EVERY_N_CALLS:
-        _calls_since_sweep = 0
-        _sweep_expired_rate_limit_entries(now)
-
-
-_account_limit_lock = threading.Lock()
+        _calls_since_sweep += 1
+        if _calls_since_sweep >= _SWEEP_EVERY_N_CALLS:
+            _calls_since_sweep = 0
+            _sweep_expired_rate_limit_entries(now)
 
 
 def enforce_account_rate_limit(
@@ -187,7 +198,7 @@ def enforce_account_rate_limit(
     # Check and record must be one step: the prediction endpoints are sync
     # handlers running in a thread pool, and without the lock concurrent
     # requests all pass the check before any of them records its use.
-    with _account_limit_lock:
+    with _rate_limit_lock:
         attempts = _auth_attempts[key]
         while attempts and now - attempts[0] > window_seconds:
             attempts.popleft()
