@@ -12,6 +12,7 @@ from datetime import timezone
 from fastapi import Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
+from config.secure_compare import constant_time_equals
 from config.settings import JWT_SECRET, EMAIL_VERIFICATION_TOKEN_TTL_HOURS
 from web_backend.database import get_db
 from web_backend.db_models import Hospital, RevokedToken
@@ -95,7 +96,7 @@ def verify_csrf(request: Request) -> None:
     which triggers a CORS preflight that our origin allowlist blocks)."""
     cookie_value = request.cookies.get(CSRF_COOKIE_NAME)
     header_value = request.headers.get(CSRF_HEADER_NAME)
-    if not cookie_value or not header_value or not secrets.compare_digest(
+    if not cookie_value or not header_value or not constant_time_equals(
         cookie_value, header_value
     ):
         raise HTTPException(status_code=403, detail="CSRF check failed.")
