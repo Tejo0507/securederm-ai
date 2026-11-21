@@ -115,6 +115,7 @@ export async function apiFetch<T = unknown>(
       signal,
     });
   } catch (err) {
+    clearTimeout(timer);
     if (options.signal?.aborted) throw err; // caller cancelled on purpose
     // Browsers surface network failures as an opaque TypeError("Failed to fetch").
     throw new ApiError(
@@ -123,28 +124,44 @@ export async function apiFetch<T = unknown>(
         ? "The server took too long to respond."
         : "Cannot reach the server. Is the backend running?",
     );
+  }
+
+  // fetch() resolves as soon as the headers arrive, so the timer has to keep
+  // running while the body downloads: a server that stalls mid-reply would
+  // otherwise leave the page waiting forever, which is what it is there to stop.
+  try {
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: "Request failed" }));
+      // `detail` is only a string for errors we raise ourselves; guard against
+      // other shapes so the UI never renders "[object Object]".
+      const detail = typeof err?.detail === "string" ? err.detail : "Request failed";
+      if (isSessionEnded(res.status, detail)) notifySessionEnded();
+      throw new ApiError(res.status, detail || "Request failed");
+    }
+
+    // 204 / empty bodies are valid successes and would make res.json() throw.
+    if (res.status === 204) return undefined as T;
+    let text: string;
+    try {
+      text = await res.text();
+    } catch (err) {
+      if (options.signal?.aborted) throw err; // caller cancelled on purpose
+      throw new ApiError(
+        0,
+        timeout.signal.aborted
+          ? "The server took too long to respond."
+          : "The connection was lost while reading the reply.",
+      );
+    }
+    if (!text) return undefined as T;
+    try {
+      return JSON.parse(text) as T;
+    } catch {
+      // A 200 with a non-JSON body (a proxy's error page, say) would otherwise
+      // surface as a raw SyntaxError that no caller knows how to show.
+      throw new ApiError(res.status, "The server sent a reply that could not be read.");
+    }
   } finally {
     clearTimeout(timer);
-  }
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: "Request failed" }));
-    // `detail` is only a string for errors we raise ourselves; guard against
-    // other shapes so the UI never renders "[object Object]".
-    const detail = typeof err?.detail === "string" ? err.detail : "Request failed";
-    if (isSessionEnded(res.status, detail)) notifySessionEnded();
-    throw new ApiError(res.status, detail || "Request failed");
-  }
-
-  // 204 / empty bodies are valid successes and would make res.json() throw.
-  if (res.status === 204) return undefined as T;
-  const text = await res.text();
-  if (!text) return undefined as T;
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    // A 200 with a non-JSON body (a proxy's error page, say) would otherwise
-    // surface as a raw SyntaxError that no caller knows how to show.
-    throw new ApiError(res.status, "The server sent a reply that could not be read.");
   }
 }
