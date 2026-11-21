@@ -23,7 +23,17 @@ function getCookie(name: string): string | null {
   const match = document.cookie.match(
     new RegExp(`(?:^|; )${name.replace(/([.$?*|{}()[\]\\/+^])/g, "\\$1")}=([^;]*)`),
   );
-  return match ? decodeURIComponent(match[1]) : null;
+  return match ? safeDecode(match[1]) : null;
+}
+
+/** decodeURIComponent throws URIError on a stray "%"; a cookie we cannot
+ *  decode is still better used as-is than allowed to break every request. */
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 /**
@@ -129,5 +139,12 @@ export async function apiFetch<T = unknown>(
   // 204 / empty bodies are valid successes and would make res.json() throw.
   if (res.status === 204) return undefined as T;
   const text = await res.text();
-  return (text ? JSON.parse(text) : undefined) as T;
+  if (!text) return undefined as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    // A 200 with a non-JSON body (a proxy's error page, say) would otherwise
+    // surface as a raw SyntaxError that no caller knows how to show.
+    throw new ApiError(res.status, "The server sent a reply that could not be read.");
+  }
 }
