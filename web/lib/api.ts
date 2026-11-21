@@ -1,3 +1,4 @@
+import { anySignal } from "@/lib/abort";
 import { isSessionEnded, notifySessionEnded } from "@/lib/session";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
@@ -22,7 +23,17 @@ function getCookie(name: string): string | null {
   const match = document.cookie.match(
     new RegExp(`(?:^|; )${name.replace(/([.$?*|{}()[\]\\/+^])/g, "\\$1")}=([^;]*)`),
   );
-  return match ? decodeURIComponent(match[1]) : null;
+  return match ? safeDecode(match[1]) : null;
+}
+
+/** decodeURIComponent throws URIError on a stray "%"; a cookie we cannot
+ *  decode is still better used as-is than allowed to break every request. */
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 /**
@@ -92,7 +103,7 @@ export async function apiFetch<T = unknown>(
   const timeout = new AbortController();
   const timer = setTimeout(() => timeout.abort(), timeoutMs);
   const signal = options.signal
-    ? AbortSignal.any([options.signal, timeout.signal])
+    ? anySignal([options.signal, timeout.signal])
     : timeout.signal;
 
   let res: Response;
@@ -104,6 +115,7 @@ export async function apiFetch<T = unknown>(
       signal,
     });
   } catch (err) {
+    clearTimeout(timer);
     if (options.signal?.aborted) throw err; // caller cancelled on purpose
     // Browsers surface network failures as an opaque TypeError("Failed to fetch").
     throw new ApiError(
@@ -112,21 +124,44 @@ export async function apiFetch<T = unknown>(
         ? "The server took too long to respond."
         : "Cannot reach the server. Is the backend running?",
     );
+  }
+
+  // fetch() resolves as soon as the headers arrive, so the timer has to keep
+  // running while the body downloads: a server that stalls mid-reply would
+  // otherwise leave the page waiting forever, which is what it is there to stop.
+  try {
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: "Request failed" }));
+      // `detail` is only a string for errors we raise ourselves; guard against
+      // other shapes so the UI never renders "[object Object]".
+      const detail = typeof err?.detail === "string" ? err.detail : "Request failed";
+      if (isSessionEnded(res.status, detail)) notifySessionEnded();
+      throw new ApiError(res.status, detail || "Request failed");
+    }
+
+    // 204 / empty bodies are valid successes and would make res.json() throw.
+    if (res.status === 204) return undefined as T;
+    let text: string;
+    try {
+      text = await res.text();
+    } catch (err) {
+      if (options.signal?.aborted) throw err; // caller cancelled on purpose
+      throw new ApiError(
+        0,
+        timeout.signal.aborted
+          ? "The server took too long to respond."
+          : "The connection was lost while reading the reply.",
+      );
+    }
+    if (!text) return undefined as T;
+    try {
+      return JSON.parse(text) as T;
+    } catch {
+      // A 200 with a non-JSON body (a proxy's error page, say) would otherwise
+      // surface as a raw SyntaxError that no caller knows how to show.
+      throw new ApiError(res.status, "The server sent a reply that could not be read.");
+    }
   } finally {
     clearTimeout(timer);
   }
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: "Request failed" }));
-    // `detail` is only a string for errors we raise ourselves; guard against
-    // other shapes so the UI never renders "[object Object]".
-    const detail = typeof err?.detail === "string" ? err.detail : "Request failed";
-    if (isSessionEnded(res.status, detail)) notifySessionEnded();
-    throw new ApiError(res.status, detail || "Request failed");
-  }
-
-  // 204 / empty bodies are valid successes and would make res.json() throw.
-  if (res.status === 204) return undefined as T;
-  const text = await res.text();
-  return (text ? JSON.parse(text) : undefined) as T;
 }
