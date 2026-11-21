@@ -103,13 +103,14 @@ def summarize_history(db: Session, hospital_id: int) -> dict:
         func.max(Prediction.created_at),
     ).filter(own).one()
 
-    by_class = dict(
-        db.query(Prediction.predicted_class, func.count(Prediction.id))
+    by_class: dict[str, int] = {
+        label: count
+        for label, count in db.query(Prediction.predicted_class, func.count(Prediction.id))
         .filter(own)
         .group_by(Prediction.predicted_class)
         .order_by(func.count(Prediction.id).desc(), Prediction.predicted_class)
         .all()
-    )
+    }
     by_model = [
         {"model_id": model_id, "count": count}
         for model_id, count in db.query(Prediction.model_id, func.count(Prediction.id))

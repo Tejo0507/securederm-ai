@@ -8,6 +8,7 @@ import json
 import base64
 from collections import defaultdict, deque
 from datetime import timezone
+from typing import Literal
 
 from fastapi import Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
@@ -57,7 +58,7 @@ CSRF_HEADER_NAME = "X-CSRF-Token"
 # check below (verify_csrf) becomes the only thing stopping cross-site
 # requests from riding an authenticated user's cookies — so it is applied
 # unconditionally, not just as a SameSite fallback.
-_COOKIE_SAMESITE = "lax"
+_COOKIE_SAMESITE: Literal["lax", "strict", "none"] = "lax"
 
 
 def set_session_cookies(response: Response, token: str) -> None:
