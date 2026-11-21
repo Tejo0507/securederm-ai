@@ -4,6 +4,10 @@ python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
 addopts = "-v --tb=short"
+# A run writes ~250 MB of model checkpoints under tmp_path, and pytest keeps the
+# last three runs' directories by default. Keep only what a failing test needs.
+tmp_path_retention_policy = "failed"
+tmp_path_retention_count = 1
 # Groups visible/filterable in the VS Code Testing panel and via `pytest -m`.
 markers = [
     "privacy: differential privacy, privacy budget and upload anonymisation",
