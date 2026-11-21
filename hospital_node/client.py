@@ -101,11 +101,15 @@ class HospitalClient:
             self.log.error("%s Registration failed: %s", self.tag, exc)
             return False
 
-        data = resp.json()
-        self.token = data["node_token"]
+        try:
+            data = resp.json()
+            token, version = data["node_token"], int(data["model_version"])
+        except (ValueError, KeyError, TypeError) as exc:
+            self.log.error("%s Registration reply was not understood: %s", self.tag, exc)
+            return False
+        self.token = token
         self.log.info(
-            "%s Registered (model v%d, %d samples)",
-            self.tag, data["model_version"], dataset_size,
+            "%s Registered (model v%d, %d samples)", self.tag, version, dataset_size,
         )
         return True
 
@@ -138,11 +142,12 @@ class HospitalClient:
 
         try:
             weights = torch.load(io.BytesIO(raw), map_location="cpu", weights_only=True)
+            version = int(data["model_version"])
         except Exception as exc:
             self.log.error("%s Received an unreadable model: %s", self.tag, exc)
             return None
-        self.model_version = data["model_version"]
-        self.log.info("%s Downloading model v%d", self.tag, self.model_version)
+        self.model_version = version
+        self.log.info("%s Downloading model v%d", self.tag, version)
         return weights
 
     # ── Upload update ────────────────────────────────────────────────
@@ -171,10 +176,18 @@ class HospitalClient:
             self.log.error("%s Upload failed: %s", self.tag, exc)
             return False
 
-        data = resp.json()
+        # The aggregator has the update once it answers 2xx; a reply that cannot
+        # be read must not crash the node, but it is reported as a failed step
+        # so the round is retried rather than silently assumed to have worked.
+        try:
+            data = resp.json()
+            aggregated, version = data["aggregated"], int(data["model_version"])
+        except (ValueError, KeyError, TypeError) as exc:
+            self.log.error("%s Upload reply was not understood: %s", self.tag, exc)
+            return False
         self.log.info(
             "%s Sending update (loss=%.4f, aggregated=%s, model v%d)",
-            self.tag, loss, data["aggregated"], data["model_version"],
+            self.tag, loss, aggregated, version,
         )
         return True
 
