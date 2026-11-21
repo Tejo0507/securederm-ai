@@ -28,17 +28,44 @@ hospital IDs that only exist from test runs) actually sitting in that
 real directory on disk. Centralizing it here fixes it the same way.
 """
 
+import logging
 import os
+import shutil
 import tempfile
 
 _TEST_DB_DIR = tempfile.mkdtemp(prefix="securederm_test_")
+_TEST_UPLOAD_DIR = tempfile.mkdtemp(prefix="securederm_test_uploads_")
+_TEST_AUDIT_DIR = tempfile.mkdtemp(prefix="securederm_test_audit_")
 os.environ["DATABASE_URL"] = f"sqlite:///{os.path.join(_TEST_DB_DIR, 'test.db')}"
 os.environ.setdefault("PBKDF2_ITERATIONS", "1000")
-os.environ["UPLOAD_DIR"] = tempfile.mkdtemp(prefix="securederm_test_uploads_")
+os.environ["UPLOAD_DIR"] = _TEST_UPLOAD_DIR
 # The aggregator persists its global model to checkpoints/ after each round;
 # tests must never write into (or restore from) the real checkpoints dir.
 os.environ["AGGREGATOR_PERSIST"] = "false"
 # The audit trail writes JSON lines to logs/audit.log; keep tests out of it.
-os.environ["AUDIT_LOG_PATH"] = os.path.join(
-    tempfile.mkdtemp(prefix="securederm_test_audit_"), "audit.log"
-)
+os.environ["AUDIT_LOG_PATH"] = os.path.join(_TEST_AUDIT_DIR, "audit.log")
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Remove the scratch directories created above.
+
+    Nothing ever deleted them, so every run left a database, an uploads tree
+    and an audit log behind in the system temp directory. Hundreds of runs add
+    up to hundreds of megabytes, which on a nearly full disk makes unrelated
+    tests fail with "No space left on device".
+
+    The database engine and the audit log handler hold their files open, and
+    Windows will not delete an open file, so release both first.
+    """
+    try:
+        from web_backend.database import engine
+
+        engine.dispose()
+    except Exception:  # never let cleanup fail the run
+        pass
+    audit_logger = logging.getLogger("securederm.audit")
+    for handler in list(audit_logger.handlers):
+        audit_logger.removeHandler(handler)
+        handler.close()
+    for directory in (_TEST_DB_DIR, _TEST_UPLOAD_DIR, _TEST_AUDIT_DIR):
+        shutil.rmtree(directory, ignore_errors=True)
