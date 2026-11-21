@@ -116,7 +116,7 @@ DP_TOTAL_EPSILON_BUDGET = float(os.getenv("DP_TOTAL_EPSILON_BUDGET", "100"))
 # secret lets anyone who has read the code forge valid tokens for any
 # account. If JWT_SECRET isn't set, generate a random one for this process
 # instead — sessions won't survive a restart, but tokens can't be forged.
-JWT_SECRET = os.getenv("JWT_SECRET")
+JWT_SECRET: str = os.getenv("JWT_SECRET") or ""
 if not JWT_SECRET:
     JWT_SECRET = secrets.token_hex(32)
     _logger.warning(

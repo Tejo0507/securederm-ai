@@ -31,6 +31,8 @@ def sanitize_image(content: bytes) -> tuple[bytes, str]:
     """
     with Image.open(io.BytesIO(content)) as img:
         fmt = img.format
+        if fmt not in _EXTENSIONS:
+            raise ValueError(f"Unsupported image format: {fmt!r}")
         mode = img.mode if img.mode in ("L", "RGB") else "RGB"
         pixels = img.convert(mode)
         clean = Image.frombytes(mode, pixels.size, pixels.tobytes())

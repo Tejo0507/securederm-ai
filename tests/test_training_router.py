@@ -8,20 +8,17 @@ had their name and simulated progress visible to anyone hitting the
 endpoint, logged in or not.
 """
 
-import os
-import tempfile
 import time
 
-_TEST_DB_DIR = tempfile.mkdtemp(prefix="securederm_test_")
-os.environ["DATABASE_URL"] = f"sqlite:///{os.path.join(_TEST_DB_DIR, 'test.db')}"
-os.environ.setdefault("PBKDF2_ITERATIONS", "1000")
+# DATABASE_URL and PBKDF2_ITERATIONS are set once for the whole run in
+# conftest.py. This file used to make its own temp directory here, which was
+# never deleted and, once another module had imported the database, did nothing.
+import pytest
+from fastapi.testclient import TestClient
 
-import pytest  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
-
-from web_backend.main import app  # noqa: E402
-from web_backend import auth as auth_module  # noqa: E402
-from web_backend.routers import training_router  # noqa: E402
+from web_backend.main import app
+from web_backend import auth as auth_module
+from web_backend.routers import training_router
 
 
 @pytest.fixture(autouse=True)
