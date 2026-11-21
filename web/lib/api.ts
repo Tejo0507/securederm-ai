@@ -1,3 +1,4 @@
+import { anySignal } from "@/lib/abort";
 import { isSessionEnded, notifySessionEnded } from "@/lib/session";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
@@ -92,7 +93,7 @@ export async function apiFetch<T = unknown>(
   const timeout = new AbortController();
   const timer = setTimeout(() => timeout.abort(), timeoutMs);
   const signal = options.signal
-    ? AbortSignal.any([options.signal, timeout.signal])
+    ? anySignal([options.signal, timeout.signal])
     : timeout.signal;
 
   let res: Response;
