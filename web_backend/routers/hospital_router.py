@@ -16,6 +16,7 @@ from fastapi import (
     Request,
     UploadFile,
 )
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -44,6 +45,23 @@ router = APIRouter()
 def default_dataset_name(hospital_name: str) -> str:
     """The title a hospital's dataset gets when its first images arrive."""
     return f"{hospital_name} Dataset"[:200]
+
+
+def _clean_upload(content: bytes) -> tuple[str, bytes] | None:
+    """(stored file name, metadata-free bytes) for an acceptable image, else None.
+
+    Decoding and re-encoding is CPU-bound: call it from a worker thread.
+    """
+    if not content or not is_genuine_image(content):
+        return None  # reject empty / spoofed-content-type / non-image files
+    # Strip EXIF/GPS/etc. and store under a name derived from the pixel data:
+    # the client's filename often contains a patient name or ID and must not
+    # be persisted. Identical images collapse to one file.
+    try:
+        clean, ext = sanitize_image(content)
+    except Exception:
+        return None
+    return f"{hashlib.sha256(clean).hexdigest()[:32]}{ext}", clean
 
 
 @router.post("/datasets/upload")
@@ -75,17 +93,13 @@ async def upload_dataset(
         content = await f.read(MAX_FILE_SIZE_BYTES + 1)
         if len(content) > MAX_FILE_SIZE_BYTES:
             continue  # reject oversized file, keep processing the rest
-        if not content or not is_genuine_image(content):
-            continue  # reject empty / spoofed-content-type / non-image files
-
-        # Strip EXIF/GPS/etc. and store under a name derived from the pixel
-        # data: the client's filename often contains a patient name or ID and
-        # must not be persisted. Identical images collapse to one file.
-        try:
-            clean, ext = sanitize_image(content)
-        except Exception:
+        # Up to 100 images of 10 MB each: processing them on the event loop
+        # stalled every other request for the whole upload.
+        prepared = await run_in_threadpool(_clean_upload, content)
+        if prepared is None:
             continue
-        dest = hospital_dir / f"{hashlib.sha256(clean).hexdigest()[:32]}{ext}"
+        name, clean = prepared
+        dest = hospital_dir / name
         if dest.exists():
             # Same pixels as an image already stored: nothing to write, and
             # leaving the file alone keeps its original upload time.
