@@ -112,14 +112,15 @@ async def upload_dataset(
     ds = db.query(Dataset).filter(Dataset.hospital_id == hospital.id).first()
     if ds:
         ds.image_count = actual_count
-    else:
-        ds = Dataset(
+    elif actual_count:
+        # Only once there is something to describe: a request in which every
+        # file was rejected used to list an empty dataset.
+        db.add(Dataset(
             hospital_id=hospital.id,
             name=default_dataset_name(hospital.name),
             dataset_path=str(hospital_dir),
             image_count=actual_count,
-        )
-        db.add(ds)
+        ))
     db.commit()
 
     # Raised only after the commit so the stored count reflects what was
@@ -136,7 +137,7 @@ async def upload_dataset(
     return {
         "uploaded": saved,
         "duplicates": duplicates,
-        "total_images": ds.image_count,
+        "total_images": actual_count,
         "quota_reached": quota_hit,
     }
 
