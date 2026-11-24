@@ -79,15 +79,7 @@ async def start_training(
     if state["active"]:
         return {"status": "already_running", "round": state["round"]}
 
-    _training_state[hospital.id] = _fresh_state()
-    _training_state[hospital.id]["active"] = True
-
-    # The event loop only keeps a weak reference to tasks; without holding
-    # one ourselves the simulation can be garbage-collected mid-run.
-    task = asyncio.create_task(_simulate_training(hospital.id, hospital.name))
-    _background_tasks.add(task)
-    _running[hospital.id] = task
-    task.add_done_callback(_background_tasks.discard)
+    _launch_simulation(hospital.id, hospital.name)
 
     audit("training_started", hospital.id, rounds=5)
     return {"status": "started", "total_rounds": 5}
@@ -110,14 +102,37 @@ async def stop_training(
     return {"status": "stopping", "round": state["round"]}
 
 
+def _launch_simulation(hospital_id: int, hospital_name: str) -> asyncio.Task:
+    """Reset this hospital's state and start a run in the background."""
+    state = _training_state[hospital_id] = _fresh_state()
+    state["active"] = True
+
+    # The event loop only keeps a weak reference to tasks; without holding
+    # one ourselves the simulation can be garbage-collected mid-run.
+    task = asyncio.create_task(_simulate_training(hospital_id, hospital_name))
+    _background_tasks.add(task)
+    _running[hospital_id] = task
+
+    # Cleanup belongs here rather than in the coroutine: a task cancelled
+    # before its first step never executes any of its body, which left the
+    # run "active" for good and every later start "already_running".
+    def finished(done: asyncio.Task) -> None:
+        _background_tasks.discard(done)
+        if _running.get(hospital_id) is done:   # not a newer run's entry
+            del _running[hospital_id]
+        state["active"] = False
+        if done.cancelled():
+            state["logs"].append("■ Training stopped.")
+
+    task.add_done_callback(finished)
+    return task
+
+
 async def _simulate_training(hospital_id: int, hospital_name: str) -> None:
     state = _training_state[hospital_id]
     try:
         await _run_simulation(state, hospital_name)
         audit("training_completed", hospital_id, rounds=state["round"])
-    except asyncio.CancelledError:
-        state["logs"].append("■ Training stopped.")
-        raise
     except Exception:
         logger.exception("Training simulation crashed for hospital_id=%s", hospital_id)
         state["logs"].append("✗ Training failed unexpectedly.")
@@ -125,7 +140,6 @@ async def _simulate_training(hospital_id: int, hospital_name: str) -> None:
         # Without this a crash mid-run leaves active=True forever, and
         # /training/start answers "already_running" until a restart.
         state["active"] = False
-        _running.pop(hospital_id, None)
 
 
 async def _run_simulation(state: dict, hospital_name: str) -> None:
