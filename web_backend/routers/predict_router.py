@@ -68,6 +68,10 @@ def predict_wound(  # sync def: FastAPI runs this in a worker thread, so a
 
     try:
         image = Image.open(io.BytesIO(content))
+        # Opening only reads the header. A file cut off part-way passes that
+        # and would then fail inside the model as a server error, so decode
+        # the pixels here, where it is still the caller's mistake.
+        image.load()
     except Exception:
         raise HTTPException(status_code=400, detail="Could not decode image.")
 
