@@ -1,6 +1,16 @@
-from datetime import datetime, timezone
+"""Database tables.
 
-from sqlalchemy import Boolean, Column, Integer, String, Float, DateTime, ForeignKey, Text
+Columns are declared with ``Mapped[...]`` so a type checker sees the value a
+row holds (``hospital.id`` is an ``int``) rather than the ``Column`` object.
+``nullable`` is spelled out wherever the table allows NULL but the annotation
+does not, so the schema never changes just because a type hint did.
+"""
+
+from datetime import datetime, timezone
+from typing import Optional
+
+from sqlalchemy import Boolean, Integer, String, Float, DateTime, ForeignKey, Text
+from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from web_backend.database import Base
@@ -19,24 +29,26 @@ class Hospital(Base):
     # newly created databases; existing ones rely on the created_at checks
     # in auth.get_current_hospital and audit.read_account_events.
     __table_args__ = {"sqlite_autoincrement": True}
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(200), nullable=False)
-    email = Column(String(200), unique=True, nullable=False, index=True)
-    password_hash = Column(String(500), nullable=False)
-    location = Column(String(200), default="")
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    email: Mapped[str] = mapped_column(String(200), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(500))
+    location: Mapped[str] = mapped_column(String(200), default="", nullable=True)
     # Set in Python rather than by SQLite's CURRENT_TIMESTAMP, which keeps
     # whole seconds only: session checks compare it with a token's
     # fractional issue time (see auth.get_current_hospital).
-    created_at = Column(DateTime, default=_utcnow, server_default=func.now())
+    created_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, default=_utcnow, server_default=func.now()
+    )
 
     # ── Email verification ──────────────────────────────────────────
-    email_verified = Column(Boolean, nullable=False, default=False)
-    email_verification_token_hash = Column(String(128), nullable=True, index=True)
-    email_verification_expires_at = Column(DateTime, nullable=True)
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    email_verification_token_hash: Mapped[Optional[str]] = mapped_column(String(128), index=True)
+    email_verification_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
 
     # Session tokens issued before this unix time are rejected ("sign out
     # everywhere"). Null means no such cut-off has ever been set.
-    sessions_valid_after = Column(Float, nullable=True)
+    sessions_valid_after: Mapped[Optional[float]] = mapped_column(Float)
 
 
 class RevokedToken(Base):
@@ -44,34 +56,34 @@ class RevokedToken(Base):
     password change, account deletion). Stateless tokens otherwise stay
     valid until they expire, even after the user logs out."""
     __tablename__ = "revoked_tokens"
-    jti = Column(String(64), primary_key=True)
-    expires_at = Column(Float, nullable=False, index=True)   # unix time; prune after this
+    jti: Mapped[str] = mapped_column(String(64), primary_key=True)
+    expires_at: Mapped[float] = mapped_column(Float, index=True)   # unix time; prune after this
 
 
 class Dataset(Base):
     __tablename__ = "datasets"
-    id = Column(Integer, primary_key=True, index=True)
-    hospital_id = Column(
-        Integer, ForeignKey("hospitals.id", ondelete="CASCADE"), nullable=False, index=True
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    hospital_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("hospitals.id", ondelete="CASCADE"), index=True
     )
-    name = Column(String(200), default="")
-    dataset_path = Column(String(500), default="")
-    image_count = Column(Integer, default=0)
-    created_at = Column(DateTime, server_default=func.now())
+    name: Mapped[str] = mapped_column(String(200), default="", nullable=True)
+    dataset_path: Mapped[str] = mapped_column(String(500), default="", nullable=True)
+    image_count: Mapped[int] = mapped_column(Integer, default=0, nullable=True)
+    created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now())
 
 
 class MLModel(Base):
     __tablename__ = "ml_models"
-    id = Column(Integer, primary_key=True, index=True)
-    model_name = Column(String(200), nullable=False)
-    version = Column(Integer, default=1)
-    created_by = Column(
-        Integer, ForeignKey("hospitals.id", ondelete="SET NULL"), nullable=True, index=True
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    model_name: Mapped[str] = mapped_column(String(200))
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=True)
+    created_by: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("hospitals.id", ondelete="SET NULL"), index=True
     )
-    accuracy = Column(Float, default=0.0)
-    description = Column(Text, default="")
-    hospital_count = Column(Integer, default=1)
-    created_at = Column(DateTime, server_default=func.now())
+    accuracy: Mapped[float] = mapped_column(Float, default=0.0, nullable=True)
+    description: Mapped[str] = mapped_column(Text, default="", nullable=True)
+    hospital_count: Mapped[int] = mapped_column(Integer, default=1, nullable=True)
+    created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now())
 
 
 class Prediction(Base):
@@ -82,22 +94,24 @@ class Prediction(Base):
     filename and the per-class probabilities are never stored.
     """
     __tablename__ = "predictions"
-    id = Column(Integer, primary_key=True, index=True)
-    hospital_id = Column(
-        Integer, ForeignKey("hospitals.id", ondelete="CASCADE"), nullable=False, index=True
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    hospital_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("hospitals.id", ondelete="CASCADE"), index=True
     )
-    model_id = Column(String(32), default="")
-    predicted_class = Column(String(64), nullable=False)
-    confidence = Column(Float, default=0.0)
-    uncertainty = Column(Float, default=0.0)
-    is_unknown = Column(Boolean, nullable=False, default=False)
-    created_at = Column(DateTime, server_default=func.now(), index=True)
+    model_id: Mapped[str] = mapped_column(String(32), default="", nullable=True)
+    predicted_class: Mapped[str] = mapped_column(String(64))
+    confidence: Mapped[float] = mapped_column(Float, default=0.0, nullable=True)
+    uncertainty: Mapped[float] = mapped_column(Float, default=0.0, nullable=True)
+    is_unknown: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, server_default=func.now(), index=True
+    )
 
 
 class FederatedRound(Base):
     __tablename__ = "federated_rounds"
-    id = Column(Integer, primary_key=True, index=True)
-    round_number = Column(Integer, nullable=False)
-    participating_hospitals = Column(String(500), default="")
-    avg_loss = Column(Float, default=0.0)
-    created_at = Column(DateTime, server_default=func.now())
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    round_number: Mapped[int] = mapped_column(Integer)
+    participating_hospitals: Mapped[str] = mapped_column(String(500), default="", nullable=True)
+    avg_loss: Mapped[float] = mapped_column(Float, default=0.0, nullable=True)
+    created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.now())
