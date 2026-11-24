@@ -330,7 +330,9 @@ async def list_models(
 ):
     models = (
         db.query(MLModel)
-        .order_by(MLModel.created_at.desc())
+        # Models saved together share a timestamp; the id keeps their order,
+        # and so the page boundaries, the same from one request to the next.
+        .order_by(MLModel.created_at.desc(), MLModel.id.desc())
         .offset(offset)
         .limit(limit)
         .all()
