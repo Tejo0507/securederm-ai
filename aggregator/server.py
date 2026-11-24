@@ -33,6 +33,7 @@ from pydantic import BaseModel, field_validator
 
 from aggregator.fedavg import federated_average
 from aggregator.robust import clip_update, file_sha256, sha256_hex
+from config.body_limit import StreamingBodyLimit
 from config.secure_compare import constant_time_equals
 from config.settings import (
     AGGREGATOR_ADMIN_TOKEN,
@@ -90,6 +91,11 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+
+# Counts the bytes of requests that declare no length (chunked uploads), which
+# the header check below cannot see. Added first so it sits closest to the routes.
+app.add_middleware(StreamingBodyLimit, max_bytes=lambda: MAX_TRAINING_UPDATE_BYTES)
 
 
 @app.middleware("http")

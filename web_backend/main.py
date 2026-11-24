@@ -25,6 +25,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from config.body_limit import StreamingBodyLimit
 from web_backend.database import engine, Base, SessionLocal, run_migrations
 from web_backend.db_models import MLModel
 from web_backend.request_id import (
@@ -158,6 +159,11 @@ if "*" in _cors_origins:
     # authenticated requests with a visitor's session cookie.
     logger.warning("Ignoring '*' in CORS_ORIGINS: credentialed requests need explicit origins.")
     _cors_origins = [o for o in _cors_origins if o != "*"]
+
+
+# Added first, so it is the innermost layer: it counts the bytes of requests
+# that declare no length, which the header check below cannot see.
+app.add_middleware(StreamingBodyLimit, max_bytes=lambda: MAX_REQUEST_BODY_BYTES)
 
 
 @app.middleware("http")
