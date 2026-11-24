@@ -29,3 +29,7 @@ python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
+# The repository root has an __init__.py and a hyphen in its name, so mypy's
+# default package discovery stops with "not a valid Python package name".
+explicit_package_bases = true
+files = ["aggregator", "config", "hospital_node", "model", "scripts", "web_backend"]
