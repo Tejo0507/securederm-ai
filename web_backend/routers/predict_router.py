@@ -33,6 +33,31 @@ def _expose_quota(response: Response, remaining: int | None) -> None:
         response.headers["X-RateLimit-Remaining"] = str(remaining)
 
 
+def _load_predictor():
+    """The deployed model, or a 503 explaining why none can answer."""
+    # Imported lazily so importing this router (and therefore the whole
+    # app) doesn't force a torch/torchvision import and model-checkpoint
+    # load path resolution before we know a request actually needs it.
+    from model.inference import get_predictor
+
+    try:
+        return get_predictor()
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=503,
+            detail="No trained model is available yet. Run federated training first.",
+        )
+    except Exception:
+        # Half-copied, corrupt or built for another architecture: the service
+        # is unavailable until the file is replaced, which is not a bug in
+        # this request.
+        logger.exception("The model checkpoint could not be loaded")
+        raise HTTPException(
+            status_code=503,
+            detail="The deployed model could not be loaded. Ask your administrator to check it.",
+        )
+
+
 @router.post("/predict")
 def predict_wound(  # sync def: FastAPI runs this in a worker thread, so a
     # slow CPU-bound PyTorch forward pass doesn't block the event loop
@@ -53,18 +78,7 @@ def predict_wound(  # sync def: FastAPI runs this in a worker thread, so a
     if not content or not is_genuine_image(content):
         raise HTTPException(status_code=400, detail="File is not a valid image.")
 
-    # Imported lazily so importing this router (and therefore the whole
-    # app) doesn't force a torch/torchvision import and model-checkpoint
-    # load path resolution before we know a request actually needs it.
-    from model.inference import get_predictor
-
-    try:
-        predictor = get_predictor()
-    except FileNotFoundError:
-        raise HTTPException(
-            status_code=503,
-            detail="No trained model is available yet. Run federated training first.",
-        )
+    predictor = _load_predictor()
 
     try:
         image = Image.open(io.BytesIO(content))
@@ -159,15 +173,7 @@ def predict_batch(
     if not images:
         raise HTTPException(status_code=400, detail="None of the files is a valid image.")
 
-    from model.inference import get_predictor
-
-    try:
-        predictor = get_predictor()
-    except FileNotFoundError:
-        raise HTTPException(
-            status_code=503,
-            detail="No trained model is available yet. Run federated training first.",
-        )
+    predictor = _load_predictor()
 
     try:
         results = predictor.predict_batch([image for _, image in images])
