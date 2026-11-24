@@ -11,7 +11,7 @@ Also provides utilities for train/val splitting and federated partitioning.
 import logging
 from collections import defaultdict
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sized, cast
 
 import torch
 from PIL import Image, UnidentifiedImageError
@@ -63,7 +63,7 @@ class _ImageSamplesDataset(Dataset):
     """Shared behaviour for datasets backed by a list of (path, label) pairs."""
 
     root_dir: Path
-    transform: Optional[transforms.Compose]
+    transform: transforms.Compose
     samples: list[tuple[Path, int]]
 
     def __len__(self) -> int:
@@ -74,9 +74,7 @@ class _ImageSamplesDataset(Dataset):
         # Load as RGB — medical images sometimes come as grayscale or RGBA
         with Image.open(img_path) as img:
             image = img.convert("RGB")
-        if self.transform:
-            image = self.transform(image)
-        return image, label
+        return self.transform(image), label
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, int]:
         # One truncated/corrupt file must not abort an entire training round
@@ -255,7 +253,7 @@ def split_train_val(dataset: Dataset, train_ratio: float = 0.8, seed: int = SPLI
     """
     if not 0.0 < train_ratio < 1.0:
         raise ValueError("train_ratio must be strictly between 0 and 1.")
-    n = len(dataset)
+    n = len(cast(Sized, dataset))
     if n < 2:
         raise ValueError("Need at least 2 samples to split into train and validation.")
 
@@ -296,7 +294,7 @@ def partition_for_hospitals(
     seed: int = SPLIT_SEED,
 ) -> list[Subset]:
     """Split a dataset into roughly equal partitions for federated simulation."""
-    n = len(dataset)
+    n = len(cast(Sized, dataset))
     if num_hospitals < 1 or num_hospitals > n:
         raise ValueError(
             f"Cannot split {n} samples across {num_hospitals} hospitals "

@@ -293,7 +293,7 @@ def decode_token(token: str) -> dict | None:
         if not hmac.compare_digest(sig, expected):
             return None
         padded = body + "=" * (4 - len(body) % 4)
-        data = json.loads(base64.urlsafe_b64decode(padded))
+        data: dict = json.loads(base64.urlsafe_b64decode(padded))
         if data.get("exp", 0) < time.time():
             return None
         return data

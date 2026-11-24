@@ -151,9 +151,9 @@ class WoundPredictor:
         return [self._to_result(row) for row in probs]
 
     def _to_result(self, probs: torch.Tensor) -> PredictionResult:
-        confidence, pred_idx = torch.max(probs, 0)
-        confidence = confidence.item()
-        pred_class = CLASS_LABELS[pred_idx.item()]
+        best, best_idx = torch.max(probs, 0)
+        confidence = float(best.item())
+        pred_class = CLASS_LABELS[int(best_idx.item())]
 
         class_probabilities = {
             CLASS_LABELS[i]: round(p.item(), 4) for i, p in enumerate(probs)
@@ -162,7 +162,7 @@ class WoundPredictor:
         k = min(TOP_K_PREDICTIONS, len(probs))
         top_p, top_i = torch.topk(probs, k)
         top_predictions = [
-            {"label": CLASS_LABELS[i.item()], "probability": round(p.item(), 4)}
+            {"label": CLASS_LABELS[int(i.item())], "probability": round(p.item(), 4)}
             for p, i in zip(top_p, top_i)
         ]
         entropy = -(probs * torch.log(probs.clamp_min(1e-12))).sum().item()

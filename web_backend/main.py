@@ -248,7 +248,7 @@ def validation_message(error: dict) -> str:
     - Other form fields get a readable label; query parameters keep their
       exact name, since that is what a caller has to fix.
     """
-    loc = error.get("loc") or ()
+    loc: tuple = error.get("loc") or ()
     field = str(loc[-1]) if loc else "input"
     message = str(error.get("msg", "Invalid value"))
     in_body = bool(loc) and loc[0] == "body"
@@ -310,7 +310,7 @@ async def readiness():
     def _model_available() -> bool:
         from model.inference import model_info
 
-        return model_info()["available"]
+        return bool(model_info()["available"])
 
     model_ready = await run_in_threadpool(_model_available)
     return {

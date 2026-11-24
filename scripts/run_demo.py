@@ -60,7 +60,7 @@ def save_round_metrics(url: str, admin_token: str = "") -> list[dict]:
         )
         resp.raise_for_status()
         data = resp.json()
-        metrics = data.get("metrics", [])
+        metrics: list[dict] = data.get("metrics", [])
         metrics_path = LOGS_DIR / "round_metrics.json"
         with open(metrics_path, "w") as f:
             json.dump(metrics, f, indent=2)

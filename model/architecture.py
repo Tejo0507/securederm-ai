@@ -39,7 +39,8 @@ class WoundClassifier(nn.Module):
             Raw logits, shape (B, num_classes). Apply softmax externally
             if you need probabilities.
         """
-        return self.backbone(x)
+        logits: torch.Tensor = self.backbone(x)
+        return logits
 
 
 def build_model(pretrained: bool = True, device: str = "cpu") -> WoundClassifier:
@@ -48,7 +49,7 @@ def build_model(pretrained: bool = True, device: str = "cpu") -> WoundClassifier
     return model.to(device)
 
 
-def build_model_for_state_dict(state_dict: dict, device: str = "cpu") -> WoundClassifier:
+def build_model_for_state_dict(state_dict: dict, device: str = "cpu") -> nn.Module:
     """Build an eval-ready model whose architecture matches `state_dict`, strictly loaded.
 
     Checkpoints come either from the stock BatchNorm ResNet or from the
@@ -57,7 +58,7 @@ def build_model_for_state_dict(state_dict: dict, device: str = "cpu") -> WoundCl
     initialized; picking the right architecture and loading strictly turns
     a mismatch into an error instead of garbage predictions.
     """
-    model = build_model(pretrained=False, device=device)
+    model: nn.Module = build_model(pretrained=False, device=device)
     if not any(k.endswith("running_mean") for k in state_dict):
         from hospital_node.privacy_layer import make_model_private
         model = make_model_private(model).to(device)

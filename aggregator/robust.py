@@ -17,7 +17,7 @@ def update_norm(weights: dict, reference: dict) -> float:
     for key, ref in reference.items():
         if ref.is_floating_point():
             total += (weights[key].double() - ref.double()).pow(2).sum().item()
-    return total ** 0.5
+    return float(total ** 0.5)
 
 
 def clip_update(weights: dict, reference: dict, max_norm: float) -> tuple[OrderedDict, float, bool]:

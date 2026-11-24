@@ -141,7 +141,7 @@ class HospitalClient:
             return None
 
         try:
-            weights = torch.load(io.BytesIO(raw), map_location="cpu", weights_only=True)
+            weights: dict = torch.load(io.BytesIO(raw), map_location="cpu", weights_only=True)
             version = int(data["model_version"])
         except Exception as exc:
             self.log.error("%s Received an unreadable model: %s", self.tag, exc)

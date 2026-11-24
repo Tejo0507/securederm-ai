@@ -218,7 +218,8 @@ def _deserialize_weights(b64_string: str) -> OrderedDict:
     """Deserialize a base64 string back to a state_dict."""
     raw = base64.b64decode(b64_string)
     buffer = io.BytesIO(raw)
-    return torch.load(buffer, map_location="cpu", weights_only=True)
+    weights: OrderedDict = torch.load(buffer, map_location="cpu", weights_only=True)
+    return weights
 
 
 def _check_weights_compatible(
@@ -248,7 +249,7 @@ def _init_global_model() -> None:
         return
 
     def _build(pretrained: bool):
-        model = build_model(pretrained=pretrained, device="cpu")
+        model: torch.nn.Module = build_model(pretrained=pretrained, device="cpu")
         if USE_DIFFERENTIAL_PRIVACY:
             # DP clients train an Opacus-fixed model (BatchNorm -> GroupNorm),
             # whose state_dict keys differ from the stock ResNet's. The global
@@ -486,7 +487,7 @@ async def submit_update(
                 ),
             )
 
-        if AGGREGATOR_MAX_UPDATE_NORM > 0:
+        if AGGREGATOR_MAX_UPDATE_NORM > 0 and global_weights is not None:
             weights, norm, was_clipped = await run_in_threadpool(
                 clip_update, weights, global_weights, AGGREGATOR_MAX_UPDATE_NORM
             )

@@ -8,7 +8,7 @@ returns updated model weights (never raw data).
 import copy
 import logging
 import math
-from typing import Optional
+from typing import Optional, Sized, cast
 
 import torch
 import torch.nn as nn
@@ -45,7 +45,7 @@ def train_step(model, optimizer, criterion, images, labels) -> Optional[float]:
     optimizer.step()
     if labels.numel() == 0:
         return None
-    return loss.item()
+    return float(loss.item())
 
 
 def train_local(
@@ -82,16 +82,17 @@ def train_local(
             raise ValueError("Must provide either dataset_path or dataset")
         dataset = WoundDataset(dataset_path, training=True)
 
-    if len(dataset) == 0:
+    num_samples = len(cast(Sized, dataset))
+    if num_samples == 0:
         raise ValueError("Cannot train on an empty dataset.")
 
     # With only a handful of records, per-example clipping + noise protects
     # almost nothing (and the noise swamps the signal): each patient is a
     # large fraction of every batch. Refuse rather than ship a model that
     # claims DP but leaks individual cases.
-    if USE_DIFFERENTIAL_PRIVACY and len(dataset) < DP_MIN_TRAIN_SAMPLES:
+    if USE_DIFFERENTIAL_PRIVACY and num_samples < DP_MIN_TRAIN_SAMPLES:
         raise ValueError(
-            f"Dataset has {len(dataset)} samples; differential privacy needs at "
+            f"Dataset has {num_samples} samples; differential privacy needs at "
             f"least {DP_MIN_TRAIN_SAMPLES} (DP_MIN_TRAIN_SAMPLES) to be meaningful."
         )
 
@@ -100,16 +101,16 @@ def train_local(
     # own batches via Opacus, so this only matters without it.
     # delta is the probability the guarantee fails; the standard requirement is
     # delta << 1/n, otherwise "(eps, delta)-DP" permits releasing whole records.
-    if USE_DIFFERENTIAL_PRIVACY and DP_DELTA * len(dataset) >= 1:
+    if USE_DIFFERENTIAL_PRIVACY and DP_DELTA * num_samples >= 1:
         logger.warning(
             "DP_DELTA=%g is not smaller than 1/n (n=%d); the privacy guarantee is "
-            "weak for a dataset this small. Lower DP_DELTA.", DP_DELTA, len(dataset),
+            "weak for a dataset this small. Lower DP_DELTA.", DP_DELTA, num_samples,
         )
 
     drop_last = (
         not USE_DIFFERENTIAL_PRIVACY
-        and len(dataset) > batch_size
-        and len(dataset) % batch_size == 1
+        and num_samples > batch_size
+        and num_samples % batch_size == 1
     )
     loader = DataLoader(
         dataset,
@@ -120,7 +121,7 @@ def train_local(
     )
 
     # Initialize model
-    model = build_model(pretrained=(global_weights is None), device=device)
+    model: nn.Module = build_model(pretrained=(global_weights is None), device=device)
 
     privacy_engine = None
     budget = None
@@ -193,10 +194,11 @@ def train_local(
                 budget.record(epsilon_spent)
 
     # Extract base state_dict (unwrap if Opacus-wrapped)
-    if USE_DIFFERENTIAL_PRIVACY and hasattr(model, "_module"):
-        state_dict = copy.deepcopy(model._module.state_dict())
-    else:
-        state_dict = copy.deepcopy(model.state_dict())
+    base_model = cast(
+        nn.Module,
+        getattr(model, "_module", model) if USE_DIFFERENTIAL_PRIVACY else model,
+    )
+    state_dict = copy.deepcopy(base_model.state_dict())
 
     # Ship CPU tensors: the aggregator (and torch.load(map_location="cpu")
     # on the other side) shouldn't depend on this node's GPU layout.
@@ -212,7 +214,7 @@ def train_local(
     return {
         "weights": state_dict,
         "epsilon": epsilon_spent,
-        "num_samples": len(dataset),
+        "num_samples": num_samples,
         "loss": running_loss,
     }
 
