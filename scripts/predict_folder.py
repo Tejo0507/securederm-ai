@@ -17,7 +17,7 @@ import os
 import sys
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
 COLUMNS = [
@@ -51,7 +51,9 @@ def _write_rows(handle, folder: Path, paths: list[Path], predictor, batch_size: 
             try:
                 with Image.open(path) as image:
                     image.load()
-                    loaded.append((path, image.copy()))
+                    # A copy that outlives the file, rotated as the camera
+                    # intended (a plain copy() loses a TIFF's rotation tag).
+                    loaded.append((path, ImageOps.exif_transpose(image)))
             except Exception as exc:
                 summary["errors"] += 1
                 writer.writerow([_cell(name), "", "", "", "", "", _cell(type(exc).__name__)])

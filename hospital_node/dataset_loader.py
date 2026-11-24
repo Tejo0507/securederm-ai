@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Optional, Sized, cast
 
 import torch
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 from torch.utils.data import Dataset, Subset
 from torchvision import transforms
 
@@ -72,8 +72,10 @@ class _ImageSamplesDataset(Dataset):
     def _load(self, idx: int) -> tuple[torch.Tensor, int]:
         img_path, label = self.samples[idx]
         # Load as RGB — medical images sometimes come as grayscale or RGBA
+        # The EXIF rotation is applied so training sees photos upright, the
+        # same way inference does.
         with Image.open(img_path) as img:
-            image = img.convert("RGB")
+            image = ImageOps.exif_transpose(img).convert("RGB")
         return self.transform(image), label
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, int]:

@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 import torch
-from PIL import Image
+from PIL import Image, ImageOps
 from torchvision import transforms
 
 from config.settings import (
@@ -144,8 +144,10 @@ class WoundPredictor:
         """Classify several images in one forward pass."""
         if not images:
             return []
+        # exif_transpose: a phone photo is stored sideways with a rotation note
+        # in its metadata, and the model must see it the way a person does.
         batch = torch.stack(
-            [_TRANSFORM(img.convert("RGB")) for img in images]
+            [_TRANSFORM(ImageOps.exif_transpose(img).convert("RGB")) for img in images]
         ).to(self.device)
         probs = self._probabilities(batch)
         return [self._to_result(row) for row in probs]

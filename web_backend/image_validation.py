@@ -5,7 +5,7 @@ file attacks the same way instead of drifting apart over time."""
 import io
 import warnings
 
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024   # 10 MB per image
 ALLOWED_IMAGE_FORMATS = {"JPEG", "PNG", "BMP", "TIFF", "WEBP"}
@@ -27,14 +27,18 @@ def sanitize_image(content: bytes) -> tuple[bytes, str]:
     names, timestamps), PNG text chunks and TIFF tags — identifying data
     that must never reach disk or a training set. Rebuilding the image from
     its pixel buffer drops every metadata block, ICC profile and thumbnail.
+    The EXIF orientation is applied to the pixels first: phones record a
+    rotation there instead of turning the picture, so dropping it would store
+    the photo sideways.
     Call only on content already accepted by is_genuine_image().
     """
     with Image.open(io.BytesIO(content)) as img:
         fmt = img.format
         if fmt not in _EXTENSIONS:
             raise ValueError(f"Unsupported image format: {fmt!r}")
-        mode = img.mode if img.mode in ("L", "RGB") else "RGB"
-        pixels = img.convert(mode)
+        upright = ImageOps.exif_transpose(img)
+        mode = upright.mode if upright.mode in ("L", "RGB") else "RGB"
+        pixels = upright.convert(mode)
         clean = Image.frombytes(mode, pixels.size, pixels.tobytes())
 
     out = io.BytesIO()
