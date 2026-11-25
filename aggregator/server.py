@@ -241,7 +241,10 @@ def _check_weights_compatible(
         tensor = weights[key]
         if not isinstance(tensor, torch.Tensor) or tensor.shape != ref.shape:
             return f"Uploaded weight '{key}' has the wrong shape."
-        if tensor.is_floating_point() != ref.is_floating_point():
+        # Exactly the same type: FedAvg accumulates in the first update's
+        # dtype, so one float16 or float64 upload changed the precision of
+        # the global model for every node.
+        if tensor.dtype != ref.dtype:
             return f"Uploaded weight '{key}' has the wrong dtype."
         if tensor.is_floating_point() and not torch.isfinite(tensor).all():
             return f"Uploaded weight '{key}' contains NaN or Inf values."
