@@ -71,6 +71,7 @@ services:
       - SMTP_USER=${SMTP_USER:-}
       - SMTP_PASSWORD=${SMTP_PASSWORD:-}
       - SMTP_FROM_ADDRESS=${SMTP_FROM_ADDRESS:-}
+      - SMTP_USE_TLS=${SMTP_USE_TLS:-true}
     volumes:
       # A directory (not a single-file bind mount): Docker creates a missing
       # bind-mount *file* as an empty directory, which breaks SQLite. A
@@ -79,6 +80,9 @@ services:
       - ./data:/app/data
       - ./datasets/uploads:/app/datasets/uploads
       - ./checkpoints:/app/checkpoints:ro
+      # The audit trail behind each account's activity list and data export;
+      # inside the container it was lost whenever the container was recreated.
+      - ./logs/web_backend:/app/logs
     restart: unless-stopped
 
   web:
