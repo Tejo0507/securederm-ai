@@ -14,7 +14,7 @@
 
 [![CI](https://img.shields.io/github/actions/workflow/status/Tejo0507/securederm-ai/ci.yml?branch=main&style=for-the-badge&logo=githubactions&logoColor=white&label=CI)](https://github.com/Tejo0507/securederm-ai/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue?style=for-the-badge)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-496%20passing-brightgreen?style=for-the-badge&logo=pytest&logoColor=white)](#testing)
+[![Tests](https://img.shields.io/badge/tests-605%20passing-brightgreen?style=for-the-badge&logo=pytest&logoColor=white)](#testing)
 [![Security Audit](https://img.shields.io/badge/security-audited-critical?style=for-the-badge&logo=shieldsdotio&logoColor=white)](#security)
 [![CVEs](https://img.shields.io/badge/known%20CVEs-0-success?style=for-the-badge&logo=snyk&logoColor=white)](#security)
 
@@ -63,9 +63,9 @@ flowchart LR
         C2 --> C3[Opacus Differential Privacy]
     end
 
-    A3 -- encrypted gradients --> AGG
-    B3 -- encrypted gradients --> AGG
-    C3 -- encrypted gradients --> AGG
+    A3 -- noised weight updates --> AGG
+    B3 -- noised weight updates --> AGG
+    C3 -- noised weight updates --> AGG
 
     AGG[["Aggregation Server\nFedAvg"]] --> GM[(Global Model)]
     GM -- next round weights --> A2
@@ -78,7 +78,7 @@ flowchart LR
     style EDGE fill:#2C5364,stroke:#00F5D4,stroke-width:2,color:#fff
 ```
 
-No hospital ever sees another hospital's data. Only gradients cross the wire, and those gradients are clipped and noised before they leave the building.
+No hospital ever sees another hospital's data. Only model weights cross the wire, trained with clipped and noised gradients. The app does not encrypt them itself, so put a TLS reverse proxy in front of the aggregator when nodes connect over a network.
 
 <br/>
 
@@ -257,7 +257,7 @@ This project has been through a full security and data integrity audit. What tha
 - **Input validation**: email format and password strength are enforced at signup, and uploaded dataset/prediction images are verified to actually be images rather than trusted by their declared content type
 - **Database**: SQLite foreign-key enforcement and WAL mode are turned on explicitly (SQLite defaults both off), schema changes run through a small startup migration instead of requiring a hand rebuild of the database file
 - **Production posture**: interactive API docs, autoreload, and internal error details are all disabled when `ENV=production`; security headers (CSP, X-Frame-Options, etc.) are set on every response
-- **Dependencies**: all known CVEs in the dependency tree have been patched (verified with `pip-audit`)
+- **Dependencies**: checked with `pip-audit` and `npm audit`; minimum versions are raised when a runtime dependency has a published fix
 - **Data hygiene**: test suites run against an isolated database and never touch production data
 
 **Not yet implemented:** Sign in with Google. The schema and endpoints are password-first; OAuth is on the roadmap but needs real Google Cloud credentials to wire up, which only the project owner can create.
@@ -268,12 +268,13 @@ This project has been through a full security and data integrity audit. What tha
 
 <div align="center">
 
-[![Pytest](https://img.shields.io/badge/496%20tests-passing-brightgreen?style=for-the-badge&logo=pytest&logoColor=white)](#)
+[![Pytest](https://img.shields.io/badge/605%20tests-passing-brightgreen?style=for-the-badge&logo=pytest&logoColor=white)](#)
 
 </div>
 
 ```bash
 pytest -v            # full suite
+mypy                 # type check (settings in pyproject.toml)
 pytest tests/test_fedavg.py -v      # federated averaging
 pytest tests/test_model.py -v       # model architecture
 pytest tests/test_server.py -v      # aggregation server
