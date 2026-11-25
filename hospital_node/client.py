@@ -44,6 +44,10 @@ NODE_TOKEN = os.getenv("NODE_TOKEN", "")
 REGISTRATION_KEY = os.getenv("AGGREGATOR_REGISTRATION_KEY", "")
 MAX_ROUND_ATTEMPTS = 3
 RETRY_DELAY_SECONDS = 5
+# How long to wait for the other hospitals before training again. Generous by
+# default: CPU training with differential privacy can take many minutes.
+ROUND_WAIT_TIMEOUT_SECONDS = float(os.getenv("ROUND_WAIT_TIMEOUT_SECONDS", "1800"))
+ROUND_POLL_SECONDS = 5
 
 
 class HospitalClient:
@@ -56,6 +60,9 @@ class HospitalClient:
         self.token: str | None = None
         self.budget_exhausted = False
         self.model_version: int | None = None   # version of the model last downloaded
+        # Set while an accepted update still waits for other hospitals: the
+        # model version it was trained from.
+        self.awaiting_version: int | None = None
         self.log = logging.getLogger(f"node.{hospital_id}")
         self.tag = f"[{hospital_id}]"
 
@@ -185,11 +192,55 @@ class HospitalClient:
         except (ValueError, KeyError, TypeError) as exc:
             self.log.error("%s Upload reply was not understood: %s", self.tag, exc)
             return False
+        self.awaiting_version = None if aggregated else self.model_version
         self.log.info(
             "%s Sending update (loss=%.4f, aggregated=%s, model v%d)",
             self.tag, loss, aggregated, version,
         )
         return True
+
+    # ── Wait for the round to close ──────────────────────────────────
+    def wait_for_round_close(
+        self,
+        timeout: float = ROUND_WAIT_TIMEOUT_SECONDS,
+        interval: float = ROUND_POLL_SECONDS,
+    ) -> bool:
+        """Block until the aggregator has averaged the last uploaded update.
+
+        A node that trained again straight away would start from the same
+        model, replace its own pending update and spend privacy budget on a
+        round that cannot count. Returns False if the new model did not appear
+        (the wait timed out, or the aggregator no longer knows this node).
+        """
+        trained_from = self.awaiting_version
+        if trained_from is None:
+            return True   # the update completed the round, nothing to wait for
+
+        self.log.info("%s Waiting for other hospitals to finish the round", self.tag)
+        url = f"{AGGREGATOR_URL}/status"
+        headers = {"X-Node-Token": self.token or ""}
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                resp = requests.get(url, headers=headers, timeout=10)
+                resp.raise_for_status()
+                status = resp.json()
+                if "model_version" not in status:
+                    # Only anonymous callers get a reply without it, so the
+                    # token is gone (an aggregator restart, for instance).
+                    self.log.warning("%s The aggregator no longer knows this node", self.tag)
+                    return False
+                if int(status["model_version"]) != trained_from:
+                    self.awaiting_version = None
+                    return True
+            except (requests.RequestException, ValueError, KeyError, TypeError) as exc:
+                self.log.warning("%s Could not check the round: %s", self.tag, exc)
+            if time.monotonic() >= deadline:
+                self.log.warning(
+                    "%s The round did not close within %.0fs", self.tag, timeout
+                )
+                return False
+            time.sleep(interval)
 
     # ── Full round ───────────────────────────────────────────────────
     def run_round(self, round_num: int = 0) -> bool:
@@ -309,8 +360,8 @@ def main():
             failed_rounds += 1
             logger.error("Round %d failed after %d attempts.", round_num, MAX_ROUND_ATTEMPTS)
             continue
-        # Brief pause between rounds to avoid hammering the server
-        time.sleep(2)
+        if round_num < args.rounds:
+            client.wait_for_round_close()
 
     if failed_rounds:
         logger.error("%d of %d rounds failed for node '%s'.", failed_rounds, args.rounds, args.node)

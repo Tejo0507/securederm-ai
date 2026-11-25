@@ -211,3 +211,5 @@ Notes:
   images per minute (default 30, 0 = off) because inference is CPU heavy.
 - A restarted node whose `hospital_id` is still registered must set the
   `NODE_TOKEN` environment variable to its current token to re-register.
+- After uploading, a node waits for the other hospitals before starting its
+  next round, up to `ROUND_WAIT_TIMEOUT_SECONDS` (default 1800).
