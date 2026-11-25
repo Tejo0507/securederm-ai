@@ -10,9 +10,9 @@ sqlalchemy>=2.0.0
 numpy>=1.24.0
 pillow>=10.0.0
 opacus>=1.4.0
-requests>=2.31.0
+requests>=2.33.0
 pydantic>=2.0.0
-python-multipart>=0.0.6
+python-multipart>=0.0.31
 # torch / torchvision are installed first from the CPU wheel index in each
 # Dockerfile (see TORCH_INDEX_URL); these constraints just keep them honest.
 torch>=2.0.0
