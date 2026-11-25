@@ -189,30 +189,29 @@ def main() -> int:
         logger.info("All clients finished.")
 
         # 5) Save metrics and model
+        failed_steps: list[str] = []
         metrics = save_round_metrics(AGGREGATOR_URL, admin_token)
+        if not metrics:
+            failed_steps.append("collecting round metrics")
         print_training_summary(metrics)
-        save_global_model(AGGREGATOR_URL, admin_token)
+        if not save_global_model(AGGREGATOR_URL, admin_token):
+            # Anything evaluated now would be an older checkpoint.
+            logger.error("No model from this run — skipping evaluation.")
+            return 1
 
-        # 6) Evaluate global model
-        logger.info("Evaluating global model ...")
-        subprocess.run(
-            [python, "-m", "scripts.evaluate_global_model"],
-            check=False,
-        )
+        # 6-8) Evaluate the model, plot the curve and run a prediction
+        for description, module in (
+            ("evaluating the global model", "scripts.evaluate_global_model"),
+            ("generating the training curve", "scripts.plot_training_curve"),
+            ("running the prediction demo", "scripts.predict_demo"),
+        ):
+            logger.info("%s ...", description.capitalize())
+            if subprocess.run([python, "-m", module], check=False).returncode != 0:
+                failed_steps.append(description)
 
-        # 7) Generate training curve
-        logger.info("Generating training curve ...")
-        subprocess.run(
-            [python, "-m", "scripts.plot_training_curve"],
-            check=False,
-        )
-
-        # 8) Run prediction demo
-        logger.info("Running prediction demo ...")
-        subprocess.run(
-            [python, "-m", "scripts.predict_demo"],
-            check=False,
-        )
+        if failed_steps:
+            logger.error("Demo finished with failures: %s.", ", ".join(failed_steps))
+            return 1
 
         # 9) Final summary
         print_final_summary()

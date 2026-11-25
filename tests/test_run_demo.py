@@ -1,5 +1,7 @@
 """Tests for the orchestration helpers in scripts/run_demo.py."""
 
+import subprocess
+
 import pytest
 import requests
 
@@ -39,12 +41,17 @@ class TestMain:
             spawned.append(command)
             return _FakeProcess(code)
 
+        def fake_run(command, **kwargs):
+            follow_ups.append(command)
+            return subprocess.CompletedProcess(command, 0)
+
         monkeypatch.setattr(run_demo.subprocess, "Popen", fake_popen)
-        monkeypatch.setattr(
-            run_demo.subprocess, "run", lambda command, **kw: follow_ups.append(command)
-        )
+        monkeypatch.setattr(run_demo.subprocess, "run", fake_run)
         monkeypatch.setattr(run_demo, "wait_for_server", lambda url: True)
-        monkeypatch.setattr(run_demo, "save_round_metrics", lambda url, token="": [])
+        monkeypatch.setattr(
+            run_demo, "save_round_metrics",
+            lambda url, token="": [{"round": 1, "num_nodes": 2, "avg_loss": 1.0}],
+        )
         monkeypatch.setattr(run_demo, "save_global_model", lambda url, token="": True)
 
         def set_client_codes(a, b):
@@ -69,6 +76,37 @@ class TestMain:
         # Evaluating and demoing a model that never finished training would
         # present stale or untrained results as the outcome of this run.
         assert follow_ups == []
+        assert "Demo Complete" not in capsys.readouterr().out
+
+    def test_a_model_that_cannot_be_saved_fails_the_demo(self, pipeline, monkeypatch, capsys):
+        _, follow_ups = pipeline
+        monkeypatch.setattr(run_demo, "save_global_model", lambda url, token="": False)
+
+        assert run_demo.main() == 1
+
+        assert follow_ups == []
+        assert "Demo Complete" not in capsys.readouterr().out
+
+    def test_missing_metrics_fail_the_demo(self, pipeline, monkeypatch, capsys):
+        monkeypatch.setattr(run_demo, "save_round_metrics", lambda url, token="": [])
+
+        assert run_demo.main() == 1
+
+        assert "Demo Complete" not in capsys.readouterr().out
+
+    def test_a_failing_follow_up_step_fails_the_demo(self, pipeline, monkeypatch, capsys):
+        ran = []
+
+        def failing_evaluation(command, **kwargs):
+            ran.append(command[-1])
+            code = 1 if command[-1] == "scripts.evaluate_global_model" else 0
+            return subprocess.CompletedProcess(command, code)
+
+        monkeypatch.setattr(run_demo.subprocess, "run", failing_evaluation)
+
+        assert run_demo.main() == 1
+
+        assert len(ran) == 3, "later steps still run"
         assert "Demo Complete" not in capsys.readouterr().out
 
     def test_an_aggregator_that_never_starts_exits_nonzero(self, pipeline, monkeypatch):
