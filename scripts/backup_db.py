@@ -57,6 +57,11 @@ def backup_database(source_path: Path, backup_dir: Path) -> Path:
             source_conn.backup(dest_conn)
         finally:
             dest_conn.close()
+    except BaseException:
+        # An empty or half-written file would pass for the newest backup, and
+        # --keep would delete a good one to make room for it.
+        dest_path.unlink(missing_ok=True)
+        raise
     finally:
         source_conn.close()
 
@@ -113,6 +118,9 @@ def main() -> None:
         dest = backup_database(args.source, args.backup_dir)
     except FileNotFoundError as exc:
         print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+    except (sqlite3.Error, OSError) as exc:
+        print(f"Error: could not back up {args.source}: {exc}", file=sys.stderr)
         sys.exit(1)
 
     size_kb = dest.stat().st_size / 1024
