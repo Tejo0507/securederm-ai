@@ -53,27 +53,52 @@ export function mightHaveSession(): boolean {
  * 401, so fetch it, check the status, and save the bytes as a Blob.
  */
 export async function apiDownload(path: string, filename: string): Promise<void> {
-  let res: Response;
-  try {
-    res = await fetch(`${API}${path}`, { credentials: "include" });
-  } catch {
-    throw new ApiError(0, "Cannot reach the server. Is the backend running?");
-  }
-  if (!res.ok) {
-    const err = await res.json().catch(() => null);
-    throw new ApiError(
-      res.status,
-      typeof err?.detail === "string" ? err.detail : "Download failed",
+  // Like apiFetch: bounded in time (headers and body), so a stalled server
+  // doesn't leave the button spinning forever. Exports can be large.
+  const timeout = new AbortController();
+  const timer = setTimeout(() => timeout.abort(), UPLOAD_TIMEOUT_MS);
+  const unreachable = () =>
+    new ApiError(
+      0,
+      timeout.signal.aborted
+        ? "The server took too long to respond."
+        : "Cannot reach the server. Is the backend running?",
     );
+
+  let blob: Blob;
+  try {
+    let res: Response;
+    try {
+      res = await fetch(`${API}${path}`, { credentials: "include", signal: timeout.signal });
+    } catch {
+      throw unreachable();
+    }
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      const detail = typeof err?.detail === "string" ? err.detail : "Download failed";
+      // A download can be the first request to find the session gone.
+      if (isSessionEnded(res.status, detail)) notifySessionEnded();
+      throw new ApiError(res.status, detail);
+    }
+    try {
+      blob = await res.blob();
+    } catch {
+      throw unreachable();
+    }
+  } finally {
+    clearTimeout(timer);
   }
-  const url = URL.createObjectURL(await res.blob());
+
+  const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
   link.download = filename;
   document.body.appendChild(link);
   link.click();
   link.remove();
-  URL.revokeObjectURL(url);
+  // Some browsers start reading the blob after click() returns; revoking at
+  // once can cancel the download.
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
 export async function apiFetch<T = unknown>(
