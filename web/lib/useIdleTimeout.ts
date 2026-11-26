@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 const ACTIVITY_EVENTS = ["pointerdown", "keydown", "wheel", "touchstart", "scroll"] as const;
 const SHARED_KEY = "securederm.lastActivity";
+/** When someone last chose "Stay signed in", in any tab. */
+const STAYED_KEY = "securederm.stayedSignedInAt";
 const WRITE_THROTTLE_MS = 5_000;
 const TICK_MS = 1_000;
 
@@ -14,17 +16,17 @@ export interface IdleState {
   stay: () => void;
 }
 
-function readShared(): number {
+function readShared(key: string): number {
   try {
-    return Number(localStorage.getItem(SHARED_KEY)) || 0;
+    return Number(localStorage.getItem(key)) || 0;
   } catch {
     return 0;   // storage blocked: this tab's own activity is all we have
   }
 }
 
-function writeShared(at: number): void {
+function writeShared(key: string, at: number): void {
   try {
-    localStorage.setItem(SHARED_KEY, String(at));
+    localStorage.setItem(key, String(at));
   } catch {
     // ignore
   }
@@ -37,7 +39,9 @@ function writeShared(at: number): void {
  * - Activity in *any* tab of this browser counts (via localStorage), so working
  *   in one tab never signs out another.
  * - While the warning is up, passive activity (a nudged mouse) does not dismiss
- *   it: only `stay()` does, so an unattended screen still signs out.
+ *   it: only `stay()` does, so an unattended screen still signs out. `stay()`
+ *   in one tab dismisses the warning in all of them, since signing out any one
+ *   tab ends the session for every tab.
  * - Time is measured against the clock, not by counting ticks, so a laptop that
  *   slept or a throttled background tab is still signed out on schedule.
  */
@@ -59,7 +63,7 @@ export function useIdleTimeout(
     lastActivity.current = now;
     if (now - lastWrite.current > WRITE_THROTTLE_MS) {
       lastWrite.current = now;
-      writeShared(now);
+      writeShared(SHARED_KEY, now);
     }
   }, []);
 
@@ -68,12 +72,13 @@ export function useIdleTimeout(
     setSecondsLeft(null);
     lastWrite.current = 0;
     touch();
+    writeShared(STAYED_KEY, lastActivity.current);
   }, [touch]);
 
   useEffect(() => {
     if (!enabled) return;
     lastActivity.current = Date.now();
-    writeShared(lastActivity.current);
+    writeShared(SHARED_KEY, lastActivity.current);
 
     const onActivity = () => {
       if (!warning.current) touch();
@@ -83,10 +88,12 @@ export function useIdleTimeout(
     );
 
     const timer = window.setInterval(() => {
-      // Another tab's activity counts too, but never while this tab is warning.
-      const last = warning.current
-        ? lastActivity.current
-        : Math.max(lastActivity.current, readShared());
+      // Another tab's activity counts too. While this tab is warning, only a
+      // deliberate "Stay signed in" elsewhere does.
+      const last = Math.max(
+        lastActivity.current,
+        readShared(warning.current ? STAYED_KEY : SHARED_KEY),
+      );
       const idle = Date.now() - last;
       if (idle >= timeoutMs) {
         window.clearInterval(timer);
@@ -96,6 +103,7 @@ export function useIdleTimeout(
         setSecondsLeft(Math.max(1, Math.ceil((timeoutMs - idle) / 1000)));
       } else if (warning.current) {
         warning.current = false;
+        lastActivity.current = last;
         setSecondsLeft(null);
       }
     }, TICK_MS);
