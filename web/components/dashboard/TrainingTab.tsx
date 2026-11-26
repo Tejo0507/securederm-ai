@@ -1,9 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { apiFetch, ApiError } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 import { chart } from "@/lib/chart";
 import { useConfirm } from "@/components/ConfirmProvider";
 import SectionHeader from "@/components/dashboard/SectionHeader";
@@ -41,7 +40,6 @@ function logTone(log: string): string {
 
 export default function TrainingTab() {
   const confirm = useConfirm();
-  const router = useRouter();
   const [status, setStatus] = useState<TrainingStatus | null>(null);
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
@@ -53,14 +51,10 @@ export default function TrainingTab() {
     if (document.hidden) return;
     apiFetch<TrainingStatus>("/api/training/status")
       .then(setStatus)
-      .catch((err: unknown) => {
-        // An expired session would otherwise be retried forever, silently.
-        if (err instanceof ApiError && err.status === 401) {
-          localStorage.removeItem("hospital");
-          router.push("/login");
-        }
-      });
-  }, [router]);
+      // A missed poll is retried by the next one. An ended session is handled
+      // once for the whole dashboard, with the reason shown on the sign-in page.
+      .catch(() => {});
+  }, []);
 
   // Follow a run closely, but an idle tab only needs an occasional look (a run
   // started from another tab or device still shows up within a few seconds).
