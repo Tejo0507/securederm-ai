@@ -4,6 +4,7 @@ import { useEffect, useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { apiFetch, ApiError, mightHaveSession } from "@/lib/api";
+import { cacheHospital } from "@/lib/hospitalCache";
 import { useCapsLock } from "@/lib/useCapsLock";
 import AuthShell from "@/components/AuthShell";
 import Button from "@/components/ui/Button";
@@ -57,7 +58,7 @@ export default function LoginPage() {
       });
       // Session lives in an httpOnly cookie now; this is just non-sensitive
       // display data cached for the dashboard's first paint.
-      localStorage.setItem("hospital", JSON.stringify(hospital));
+      cacheHospital(hospital);
       router.push("/dashboard");
     } catch (err: unknown) {
       if (err instanceof ApiError && err.status === 403) {

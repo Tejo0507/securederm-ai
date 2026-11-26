@@ -4,6 +4,7 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api";
+import { cacheHospital } from "@/lib/hospitalCache";
 import AuthShell from "@/components/AuthShell";
 import { buttonClass } from "@/components/ui/Button";
 import Notice from "@/components/ui/Notice";
@@ -38,7 +39,7 @@ function VerifyEmailInner() {
       body: JSON.stringify({ token }),
     })
       .then((hospital) => {
-        localStorage.setItem("hospital", JSON.stringify(hospital));
+        cacheHospital(hospital);
         setStatus("success");
         setTimeout(() => router.push("/dashboard"), 1200);
       })

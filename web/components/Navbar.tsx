@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { apiFetch, ApiError, mightHaveSession } from "@/lib/api";
+import { clearCachedHospital, readCachedHospital } from "@/lib/hospitalCache";
 import Logo from "@/components/ui/Logo";
 import ThemeSwitch from "@/components/ThemeSwitch";
 import { buttonClass } from "@/components/ui/Button";
@@ -34,18 +35,10 @@ export default function Navbar() {
     let cancelled = false;
     if (!mightHaveSession()) {
       // No session cookie pair: signed out for sure, and the cache is stale.
-      try {
-        localStorage.removeItem("hospital");
-      } catch {
-        // ignore
-      }
+      clearCachedHospital();
       return () => window.removeEventListener("scroll", onScroll);
     }
-    try {
-      setLoggedIn(!!localStorage.getItem("hospital"));
-    } catch {
-      // storage blocked; rely on the session check below
-    }
+    setLoggedIn(readCachedHospital() !== null);
     // The cache can be stale (expired or revoked session); ask the backend.
     // Only a definitive 401 flips it to logged-out, so a network blip
     // doesn't make a signed-in user look signed out.
@@ -54,11 +47,7 @@ export default function Navbar() {
       .catch((err: unknown) => {
         if (cancelled || !(err instanceof ApiError) || err.status !== 401) return;
         setLoggedIn(false);
-        try {
-          localStorage.removeItem("hospital");
-        } catch {
-          // ignore
-        }
+        clearCachedHospital();
       });
     return () => {
       cancelled = true;

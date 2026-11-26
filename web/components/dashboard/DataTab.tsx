@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import { formatServerDate } from "@/lib/time";
 import { expectSessionEnd } from "@/lib/session";
+import { clearCachedHospital } from "@/lib/hospitalCache";
 import { useConfirm } from "@/components/ConfirmProvider";
 import SectionHeader from "@/components/dashboard/SectionHeader";
 import StorageSummary from "@/components/dashboard/StorageSummary";
@@ -109,7 +110,7 @@ export default function DataTab() {
         body: JSON.stringify({ password: deletePassword }),
       });
       expectSessionEnd();
-      localStorage.removeItem("hospital");
+      clearCachedHospital();
       router.push("/");
     } catch (err: unknown) {
       setDeleteError(err instanceof Error ? err.message : "Could not delete account.");

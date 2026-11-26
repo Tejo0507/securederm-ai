@@ -4,6 +4,7 @@ import { FormEvent, ReactNode, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiDownload, apiFetch } from "@/lib/api";
 import { expectSessionEnd } from "@/lib/session";
+import { clearCachedHospital } from "@/lib/hospitalCache";
 import { useConfirm } from "@/components/ConfirmProvider";
 import PasswordStrength from "@/components/PasswordStrength";
 import SectionHeader from "@/components/dashboard/SectionHeader";
@@ -151,11 +152,7 @@ function ProfileForm({ hospital, onProfileUpdated }: Props) {
 
 function endSessionLocally(router: ReturnType<typeof useRouter>) {
   expectSessionEnd(); // deliberate: later failed polls are not "session expired"
-  try {
-    localStorage.removeItem("hospital");
-  } catch {
-    // storage blocked; nothing cached to clear
-  }
+  clearCachedHospital();
   router.push("/login");
 }
 

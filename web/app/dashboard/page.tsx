@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch, ApiError } from "@/lib/api";
+import { cacheHospital, clearCachedHospital, readCachedHospital } from "@/lib/hospitalCache";
 import type { HospitalInfo } from "@/lib/types";
 import { expectSessionEnd, onSessionEnded, SESSION_ENDED_REDIRECT } from "@/lib/session";
 import { useIdleTimeout } from "@/lib/useIdleTimeout";
@@ -78,24 +79,19 @@ export default function DashboardPage() {
      check localStorage for a token. Ask the backend who (if anyone) the
      current cookie belongs to. */
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem("hospital");
-      if (stored) setHospital(JSON.parse(stored)); // optimistic first paint
-    } catch {
-      // corrupt/blocked cache: fall through to the authoritative /me check
-      localStorage.removeItem("hospital");
-    }
+    const cached = readCachedHospital();
+    if (cached) setHospital(cached); // optimistic first paint
 
     apiFetch<HospitalInfo>("/api/auth/me")
       .then((h) => {
         setHospital(h);
-        localStorage.setItem("hospital", JSON.stringify(h));
+        cacheHospital(h);
       })
       .catch((err: unknown) => {
         // Only a 401 means "not signed in". A network blip or a 5xx must
         // not throw away a valid session by bouncing the user to /login.
         if (err instanceof ApiError && err.status === 401) {
-          localStorage.removeItem("hospital");
+          clearCachedHospital();
           router.push("/login");
         }
       });
@@ -106,11 +102,7 @@ export default function DashboardPage() {
   useEffect(
     () =>
       onSessionEnded(() => {
-        try {
-          localStorage.removeItem("hospital");
-        } catch {
-          // storage blocked; nothing cached to clear
-        }
+        clearCachedHospital();
         router.replace(SESSION_ENDED_REDIRECT);
       }),
     [router],
@@ -123,11 +115,7 @@ export default function DashboardPage() {
     } catch {
       // even if the network call fails, still clear local state and leave
     }
-    try {
-      localStorage.removeItem("hospital");
-    } catch {
-      // storage blocked; nothing cached to clear
-    }
+    clearCachedHospital();
     router.replace(destination);
   }
   const logout = () => endSession("/");
@@ -160,7 +148,7 @@ export default function DashboardPage() {
 
   function profileUpdated(updated: HospitalInfo) {
     setHospital(updated);
-    localStorage.setItem("hospital", JSON.stringify(updated));
+    cacheHospital(updated);
   }
 
   const initials = hospital.name
