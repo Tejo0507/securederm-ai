@@ -76,11 +76,14 @@ export default function TrainingTab() {
     setError("");
     try {
       await apiFetch("/api/training/start", { method: "POST" });
-      // Poll immediately so UI updates right away
-      setTimeout(poll, 300);
-      setTimeout(poll, 1000);
+      // Stay in "Starting..." until the new run's status is in hand. If this
+      // read fails, the regular polling picks the run up.
+      await apiFetch<TrainingStatus>("/api/training/status")
+        .then(setStatus)
+        .catch(() => {});
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to start training. Is the backend running?");
+    } finally {
       setStarting(false);
     }
   }
@@ -105,13 +108,6 @@ export default function TrainingTab() {
       setStopping(false);
     }
   }
-
-  // Reset starting flag once polling shows active or has logs
-  useEffect(() => {
-    if (starting && (status?.active || (status?.logs && status.logs.length > 0))) {
-      setStarting(false);
-    }
-  }, [starting, status?.active, status?.logs]);
 
   const active = !!status?.active;
   const progress = status && status.total_rounds > 0 ? (status.round / status.total_rounds) * 100 : 0;
