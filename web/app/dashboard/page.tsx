@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
+import StatusPage from "@/components/StatusPage";
+import { buttonClass } from "@/components/ui/Button";
 import { apiFetch, ApiError } from "@/lib/api";
 import { cacheHospital, clearCachedHospital, readCachedHospital } from "@/lib/hospitalCache";
 import type { HospitalInfo } from "@/lib/types";
@@ -74,6 +77,8 @@ export default function DashboardPage() {
   // browser history entries) can be told apart.
   useDocumentTitle(`${TABS.find((t) => t.key === tab)?.label ?? "Overview"} · Dashboard · SecureDerm AI`);
   const [hospital, setHospital] = useState<HospitalInfo | null>(null);
+  const [loadError, setLoadError] = useState("");
+  const [attempt, setAttempt] = useState(0);
 
   /* Auth guard: the session lives in an httpOnly cookie, so we can't just
      check localStorage for a token. Ask the backend who (if anyone) the
@@ -81,6 +86,7 @@ export default function DashboardPage() {
   useEffect(() => {
     const cached = readCachedHospital();
     if (cached) setHospital(cached); // optimistic first paint
+    setLoadError("");
 
     apiFetch<HospitalInfo>("/api/auth/me")
       .then((h) => {
@@ -93,9 +99,12 @@ export default function DashboardPage() {
         if (err instanceof ApiError && err.status === 401) {
           clearCachedHospital();
           router.push("/login");
+          return;
         }
+        // With nothing cached there is no dashboard to show; say why.
+        setLoadError(err instanceof Error ? err.message : "Could not load your account.");
       });
-  }, [router]);
+  }, [router, attempt]);
 
   // One central reaction when any request finds the session gone (it expired,
   // or was ended from another device) instead of a cryptic error in each tab.
@@ -136,6 +145,27 @@ export default function DashboardPage() {
     },
     [setTab],
   );
+
+  if (!hospital && loadError) {
+    return (
+      <StatusPage
+        code="Dashboard unavailable"
+        title="Your dashboard could not be loaded"
+        actions={
+          <>
+            <button type="button" onClick={() => setAttempt((a) => a + 1)} className={buttonClass("primary")}>
+              Try again
+            </button>
+            <Link href="/" className={buttonClass("secondary")}>
+              Back to home
+            </Link>
+          </>
+        }
+      >
+        <p role="alert">{loadError}</p>
+      </StatusPage>
+    );
+  }
 
   if (!hospital) {
     return (
