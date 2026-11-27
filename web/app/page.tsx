@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/icons";
 
 const FIGURES = [
-  { value: "10+", label: "wound classes" },
+  { value: "10", label: "image classes" },
   { value: "2,940", label: "training images" },
   { value: "0", label: "images leave a site" },
   { value: "ε-DP", label: "on every update" },
@@ -41,8 +41,8 @@ const CAPABILITIES = [
   },
   {
     icon: <IconMerge size={20} />,
-    title: "Secure aggregation",
-    body: "FedAvg merges encrypted weight updates. The aggregator never sees an individual hospital's gradients.",
+    title: "Federated averaging",
+    body: "FedAvg merges every site's weight update, weighted by its dataset size, into one global model. No images or patient records are part of an update.",
   },
   {
     icon: <IconChip size={20} />,
@@ -54,7 +54,7 @@ const CAPABILITIES = [
 const STEPS = [
   { title: "Upload locally", body: "Each hospital adds wound images to its own secure node." },
   { title: "Train on site", body: "The model trains on that hospital's data with differential privacy." },
-  { title: "Share updates", body: "Only encrypted model updates leave the building. Raw images never do." },
+  { title: "Share updates", body: "Only noised model updates leave the building. Raw images never do." },
   { title: "Aggregate", body: "FedAvg merges every site's update into a better global model." },
   { title: "Redeploy", body: "Each hospital receives the improved model, and the cycle repeats." },
 ];
@@ -101,7 +101,7 @@ export default function Home() {
               </h1>
               <p className="mt-6 max-w-[34rem] text-[17px] leading-relaxed text-ink-2">
                 SecureDerm AI lets hospital networks build a shared wound classifier. Each site trains on
-                its own data behind its own firewall; only noised, encrypted weight updates travel to the
+                its own data behind its own firewall; only clipped, noised weight updates travel to the
                 aggregator.
               </p>
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">

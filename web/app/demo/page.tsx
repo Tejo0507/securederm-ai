@@ -28,7 +28,7 @@ const BASE_LOSS = 2.45;
 
 const PHASES: { key: Exclude<FedPhase, "idle">; label: string; detail: string }[] = [
   { key: "training", label: "Train", detail: "Hospitals train locally with differential privacy" },
-  { key: "uploading", label: "Send", detail: "Encrypted weight updates go to the aggregator" },
+  { key: "uploading", label: "Send", detail: "Clipped, noised weight updates go to the aggregator" },
   { key: "aggregating", label: "Average", detail: "The aggregator runs Federated Averaging" },
   { key: "distributing", label: "Return", detail: "The improved global model goes back to every site" },
 ];
@@ -84,7 +84,7 @@ export default function DemoPage() {
       await sleep(2000);
 
       setPhase("uploading");
-      addLog("send", `[round ${r}] encrypted updates uploaded`);
+      addLog("send", `[round ${r}] noised updates uploaded`);
       await sleep(1500);
 
       setPhase("aggregating");

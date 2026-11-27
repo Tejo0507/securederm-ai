@@ -165,13 +165,13 @@ async def _run_simulation(state: dict, hospital_name: str) -> None:
         await asyncio.sleep(1)
 
         state["logs"].append(
-            f"[Round {round_num}] {hospital_name} uploading encrypted gradients"
+            f"[Round {round_num}] {hospital_name} uploading weight updates"
         )
         await asyncio.sleep(1)
 
         loss_b = base_loss * (0.82 ** round_num) + random.uniform(-0.03, 0.03)
         state["logs"].append(
-            f"[Round {round_num}] {partner} uploading encrypted gradients"
+            f"[Round {round_num}] {partner} uploading weight updates"
         )
         await asyncio.sleep(1)
 
