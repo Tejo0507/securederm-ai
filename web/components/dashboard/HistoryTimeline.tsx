@@ -44,7 +44,13 @@ export default function HistoryTimeline({ reloadKey }: { reloadKey: number }) {
     <Panel className="h-full">
       <PanelHeader
         title="Activity"
-        description={timeline ? `${total} diagnoses in the last ${days} days (UTC days)` : "Loading..."}
+        description={
+          failed
+            ? "Not available"
+            : timeline && timeline.days === days
+              ? `${total} ${total === 1 ? "diagnosis" : "diagnoses"} in the last ${timeline.days} days (UTC days)`
+              : "Loading..." // the old range's total must not be captioned with the new one
+        }
         actions={
           <div
             className="inline-flex rounded border border-line-strong bg-canvas p-0.5"
