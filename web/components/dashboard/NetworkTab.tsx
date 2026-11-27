@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/Field";
 import SectionHeader from "@/components/dashboard/SectionHeader";
 import { Panel, PanelBody, PanelHeader } from "@/components/ui/Panel";
 import EmptyState from "@/components/ui/EmptyState";
+import Notice from "@/components/ui/Notice";
 import { IconHospital, IconMerge } from "@/components/ui/icons";
 
 interface Round {
@@ -36,13 +37,14 @@ function directoryPath(q: string, offset = 0): string {
 
 export default function NetworkTab() {
   const [directory, setDirectory] = useState<Directory | null>(null);
-  const [rounds, setRounds] = useState<Round[] | null>(null);
+  const [rounds, setRounds] = useState<Round[] | null | "failed">(null);
+  const [directoryFailed, setDirectoryFailed] = useState(false);
   const [memberCount, setMemberCount] = useState<number | null>(null);
   const [query, setQuery] = useState("");
   const [loadingMore, setLoadingMore] = useState(false);
 
   useEffect(() => {
-    apiFetch<Round[]>("/api/federated/rounds").then(setRounds).catch(() => setRounds([]));
+    apiFetch<Round[]>("/api/federated/rounds").then(setRounds).catch(() => setRounds("failed"));
     apiFetch<NetworkStats>("/api/network/stats")
       .then((s) => setMemberCount(s.hospitals))
       .catch(() => setMemberCount(null));
@@ -56,12 +58,12 @@ export default function NetworkTab() {
       () => {
         apiFetch<HospitalInfo[]>(directoryPath(q), { signal: controller.signal })
           .then((list) => {
+            setDirectoryFailed(false);
             setDirectory({ q, hospitals: list, hasMore: list.length === DIRECTORY_PAGE });
           })
           .catch(() => {
-            if (!controller.signal.aborted) {
-              setDirectory((current) => current ?? { q, hospitals: [], hasMore: false });
-            }
+            // Rows already showing stay; the notice says they were not updated.
+            if (!controller.signal.aborted) setDirectoryFailed(true);
           });
       },
       q ? 250 : 0,
@@ -131,7 +133,12 @@ export default function NetworkTab() {
               onChange={(e) => setQuery(e.target.value)}
             />
           </div>
-          {hospitals === null ? (
+          {directoryFailed && (
+            <Notice tone="danger" role="alert" className="mb-4">
+              The directory could not be loaded. Change the search to try again.
+            </Notice>
+          )}
+          {hospitals === null && directoryFailed ? null : hospitals === null ? (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-busy="true" aria-label="Loading hospitals">
               {[0, 1, 2].map((i) => (
                 <div key={i} className="skeleton h-[60px]" />
@@ -184,6 +191,10 @@ export default function NetworkTab() {
                 <div key={i} className="skeleton h-11 w-full" />
               ))}
             </div>
+          ) : rounds === "failed" ? (
+            <EmptyState icon={<IconMerge size={18} />} title="Rounds unavailable">
+              The training rounds could not be loaded. Reload the page to try again.
+            </EmptyState>
           ) : rounds.length === 0 ? (
             <EmptyState icon={<IconMerge size={18} />} title="No rounds yet">
               Start training to run the first federated round.

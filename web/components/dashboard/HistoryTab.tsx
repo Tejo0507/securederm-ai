@@ -174,11 +174,13 @@ export default function HistoryTab() {
   const total = rangeInvalid ? 0 : (page?.total ?? 0);
   const items = rangeInvalid ? [] : (page?.items ?? []);
   const classes = summary ? Object.keys(summary.by_class) : [];
-  const hasAnyHistory = (summary?.total ?? 0) > 0;
+  // Without the summary, rows in the table still show that there is history.
+  const hasAnyHistory = summary ? summary.total > 0 : total > 0;
   const lastOffset = Math.max(0, Math.floor((total - 1) / PAGE_SIZE) * PAGE_SIZE);
 
   const cards = [
-    { label: "Diagnoses", value: String(summary?.total ?? 0) },
+    // "n/a" until the summary arrives: a zero would claim there is nothing.
+    { label: "Diagnoses", value: summary ? String(summary.total) : "n/a" },
     {
       label: "Flagged unknown",
       value: summary ? `${(summary.unknown_rate * 100).toFixed(0)}%` : "n/a",
@@ -190,7 +192,7 @@ export default function HistoryTab() {
           ? `${(summary.average_confidence * 100).toFixed(0)}%`
           : "n/a",
     },
-    { label: "Models used", value: String(summary?.by_model.length ?? 0) },
+    { label: "Models used", value: summary ? String(summary.by_model.length) : "n/a" },
   ];
 
   const maxClassCount = Math.max(1, ...Object.values(summary?.by_class ?? {}));
@@ -351,6 +353,20 @@ export default function HistoryTab() {
               {[0, 1, 2, 3, 4].map((i) => (
                 <div key={i} className="skeleton h-8 w-full" />
               ))}
+            </div>
+          ) : !page && error ? (
+            <div className="p-5 sm:p-6">
+              <EmptyState
+                icon={<IconHistory size={18} />}
+                title="History unavailable"
+                action={
+                  <Button variant="secondary" size="sm" onClick={() => setReloadKey((k) => k + 1)}>
+                    Try again
+                  </Button>
+                }
+              >
+                Your predictions could not be loaded.
+              </EmptyState>
             </div>
           ) : items.length === 0 ? (
             <div className="p-5 sm:p-6">

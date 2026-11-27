@@ -39,17 +39,6 @@ export function activityDetail(e: ActivityEntry): string | null {
   return null;
 }
 
-/** Shown when the summary cannot be read: zeros are truer than a spinner that never ends. */
-const EMPTY_STORAGE: DatasetSummary = {
-  images: 0,
-  total_bytes: 0,
-  formats: {},
-  quota: 0,
-  quota_used: 0,
-  oldest_upload: null,
-  newest_upload: null,
-};
-
 function ActionRow({
   icon,
   title,
@@ -93,30 +82,33 @@ function ActionRow({
 }
 
 export default function OverviewTab({ hospital, setTab }: { hospital: HospitalInfo; setTab: (t: Tab) => void }) {
-  const [storage, setStorage] = useState<DatasetSummary | null>(null);
+  const [storage, setStorage] = useState<DatasetSummary | null | "failed">(null);
   const [network, setNetwork] = useState<NetworkStats | null | "failed">(null);
-  const [activity, setActivity] = useState<ActivityEntry[] | null>(null);
+  const [activity, setActivity] = useState<ActivityEntry[] | null | "failed">(null);
 
   useEffect(() => {
-    apiFetch<DatasetSummary>("/api/datasets/summary").then(setStorage).catch(() => setStorage(EMPTY_STORAGE));
+    apiFetch<DatasetSummary>("/api/datasets/summary").then(setStorage).catch(() => setStorage("failed"));
     // The list endpoints return one page (50 rows), so counting their rows
     // stops being true once the network outgrows a page. The stats endpoint
     // counts in the database.
     apiFetch<NetworkStats>("/api/network/stats").then(setNetwork).catch(() => setNetwork("failed"));
-    apiFetch<ActivityEntry[]>("/api/auth/activity?limit=8").then(setActivity).catch(() => setActivity([]));
+    apiFetch<ActivityEntry[]>("/api/auth/activity?limit=8").then(setActivity).catch(() => setActivity("failed"));
   }, []);
 
   const loadingValue = <span className="skeleton inline-block h-7 w-12 align-middle" aria-label="Loading" />;
   const networkValue = (pick: (n: NetworkStats) => number) =>
     network === null ? loadingValue : network === "failed" ? "n/a" : pick(network).toLocaleString();
 
+  const storageValue = (pick: (s: DatasetSummary) => string) =>
+    storage === null ? loadingValue : storage === "failed" ? "n/a" : pick(storage);
+
   const stats = [
-    { label: "Local images", value: storage ? storage.images.toLocaleString() : loadingValue, hint: "Stored on this node" },
+    { label: "Local images", value: storageValue((s) => s.images.toLocaleString()), hint: "Stored on this node" },
     {
       label: "Storage used",
-      value: storage ? formatBytes(storage.total_bytes) : loadingValue,
+      value: storageValue((s) => formatBytes(s.total_bytes)),
       hint:
-        storage && storage.quota > 0
+        storage && storage !== "failed" && storage.quota > 0
           ? `${storage.images.toLocaleString()} of ${storage.quota.toLocaleString()} image quota`
           : "Of your image quota",
     },
@@ -183,6 +175,10 @@ export default function OverviewTab({ hospital, setTab }: { hospital: HospitalIn
                   </li>
                 ))}
               </ul>
+            ) : activity === "failed" ? (
+              <EmptyState icon={<IconHistory size={18} />} title="Activity unavailable">
+                Your recent activity could not be loaded. Reload the page to try again.
+              </EmptyState>
             ) : activity.length === 0 ? (
               <EmptyState icon={<IconHistory size={18} />} title="No activity yet">
                 Sign-ins and changes to your account will be listed here.

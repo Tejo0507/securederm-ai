@@ -46,6 +46,7 @@ export default function DataTab() {
   const confirm = useConfirm();
   const router = useRouter();
   const [datasets, setDatasets] = useState<Dataset[] | null>(null);
+  const [datasetsFailed, setDatasetsFailed] = useState(false);
   const [selected, setSelected] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   const [msg, setMsg] = useState("");
@@ -62,8 +63,11 @@ export default function DataTab() {
   const loadDatasets = useCallback(() => {
     setStorageVersion((v) => v + 1);
     apiFetch<Dataset[]>("/api/datasets")
-      .then(setDatasets)
-      .catch(() => setDatasets((d) => d ?? []));
+      .then((list) => {
+        setDatasets(list);
+        setDatasetsFailed(false);
+      })
+      .catch(() => setDatasetsFailed(true));
   }, []);
 
   useEffect(() => {
@@ -240,7 +244,19 @@ export default function DataTab() {
           }
         />
         <PanelBody className="pt-4">
-          {datasets === null ? (
+          {datasets === null && datasetsFailed ? (
+            <EmptyState
+              icon={<IconDatabase size={18} />}
+              title="Datasets unavailable"
+              action={
+                <Button variant="secondary" size="sm" onClick={loadDatasets}>
+                  Try again
+                </Button>
+              }
+            >
+              Your datasets could not be loaded.
+            </EmptyState>
+          ) : datasets === null ? (
             <div className="space-y-2" aria-busy="true" aria-label="Loading datasets">
               {[0, 1, 2].map((i) => (
                 <div key={i} className="skeleton h-12 w-full" />
