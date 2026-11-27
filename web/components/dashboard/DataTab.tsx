@@ -21,6 +21,7 @@ import { IconDatabase, IconTrash, IconUpload } from "@/components/ui/icons";
 
 const UPLOAD_BATCH_MAX_FILES = 100;
 const UPLOAD_BATCH_MAX_BYTES = 20 * 1024 * 1024;
+const UPLOAD_MAX_FILE_BYTES = 10 * 1024 * 1024; // mirrors MAX_FILE_SIZE_BYTES in the backend
 
 /**
  * "Added 3 new images, 2 already stored (5 in total)". Identical photos are
@@ -33,6 +34,18 @@ export function uploadSummary(accepted: number, duplicates: number, total: numbe
   if (added === 0) return `Nothing new: ${duplicates === 1 ? "that image was" : `all ${duplicates} images were`} already stored (${noun(total)} in total)`;
   const already = duplicates > 0 ? `, ${duplicates} already stored` : "";
   return `Added ${noun(added)}${already} (${total.toLocaleString()} in total)`;
+}
+
+/** What the summary leaves out: the files that did not make it in, and why. */
+export function uploadProblems(tooLarge: number, unreadable: number, quotaReached: boolean): string {
+  const files = (n: number) => `${n} ${n === 1 ? "file was" : "files were"}`;
+  return [
+    tooLarge > 0 ? `${files(tooLarge)} over 10 MB and not sent.` : "",
+    unreadable > 0 ? `${files(unreadable)} skipped: not a readable image.` : "",
+    quotaReached ? "Your image limit is reached, so the remaining files were not stored." : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 interface Dataset {
@@ -51,6 +64,8 @@ export default function DataTab() {
   const [uploading, setUploading] = useState(false);
   const [msg, setMsg] = useState("");
   const [msgIsError, setMsgIsError] = useState(false);
+  // An upload that stored some files but not all of them.
+  const [msgIsPartial, setMsgIsPartial] = useState(false);
   const [erasing, setErasing] = useState(false);
   const [deletePassword, setDeletePassword] = useState("");
   const [showDeletePassword, setShowDeletePassword] = useState(false);
@@ -86,6 +101,7 @@ export default function DataTab() {
     try {
       const res = await apiFetch<{ deleted_images: number }>("/api/datasets", { method: "DELETE" });
       setMsgIsError(false);
+      setMsgIsPartial(false);
       setMsg(`Deleted ${res.deleted_images} images`);
       loadDatasets();
     } catch (err: unknown) {
@@ -139,7 +155,12 @@ export default function DataTab() {
     const batches: File[][] = [];
     let current: File[] = [];
     let currentBytes = 0;
-    for (const f of Array.from(input.files)) {
+    const chosen = Array.from(input.files);
+    // The server skips these anyway, and one very large file would push a
+    // request over its size limit and fail everything sent with it.
+    const sendable = chosen.filter((f) => f.size <= UPLOAD_MAX_FILE_BYTES);
+    const tooLarge = chosen.length - sendable.length;
+    for (const f of sendable) {
       if (
         current.length > 0 &&
         (current.length >= UPLOAD_BATCH_MAX_FILES || currentBytes + f.size > UPLOAD_BATCH_MAX_BYTES)
@@ -156,20 +177,33 @@ export default function DataTab() {
     let uploaded = 0;
     let duplicates = 0;
     let totalImages = 0;
+    let unreadable = 0;
+    let quotaReached = false;
     try {
       for (const batch of batches) {
         const fd = new FormData();
         for (const f of batch) fd.append("files", f);
-        const data = await apiFetch<{ uploaded: number; duplicates?: number; total_images: number }>(
-          "/api/datasets/upload",
-          { method: "POST", body: fd },
-        );
+        const data = await apiFetch<{
+          uploaded: number;
+          duplicates?: number;
+          total_images: number;
+          quota_reached?: boolean;
+        }>("/api/datasets/upload", { method: "POST", body: fd });
         uploaded += data.uploaded;
         duplicates += data.duplicates ?? 0;
         totalImages = data.total_images;
+        if (data.quota_reached) {
+          quotaReached = true; // later batches would only be refused
+          break;
+        }
+        unreadable += batch.length - data.uploaded;
       }
-      setMsgIsError(false);
-      setMsg(uploadSummary(uploaded, duplicates, totalImages));
+      const problems = uploadProblems(tooLarge, unreadable, quotaReached);
+      // With nothing sent there is no server total to quote.
+      const summary = batches.length > 0 ? uploadSummary(uploaded, duplicates, totalImages) : "No images were added";
+      setMsgIsError(uploaded === 0 && problems !== "");
+      setMsgIsPartial(problems !== "");
+      setMsg(problems ? `${summary}. ${problems}` : summary);
       input.value = "";
       setSelected([]);
     } catch (err: unknown) {
@@ -217,7 +251,10 @@ export default function DataTab() {
           <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-h-[1.25rem] text-[13px]" aria-live="polite">
               {msg && (
-                <Notice tone={msgIsError ? "danger" : "success"} role={msgIsError ? "alert" : "status"}>
+                <Notice
+                  tone={msgIsError ? "danger" : msgIsPartial ? "warning" : "success"}
+                  role={msgIsError ? "alert" : "status"}
+                >
                   {msg}
                 </Notice>
               )}
