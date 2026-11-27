@@ -20,12 +20,25 @@ interface Round {
 
 const DIRECTORY_PAGE = 50; // the API's default page size
 
+/** The rows showing, together with the search they answer. */
+interface Directory {
+  q: string;
+  hospitals: HospitalInfo[];
+  hasMore: boolean;
+}
+
+function directoryPath(q: string, offset = 0): string {
+  const params = new URLSearchParams({ limit: String(DIRECTORY_PAGE) });
+  if (offset > 0) params.set("offset", String(offset));
+  if (q) params.set("q", q);
+  return `/api/hospitals?${params}`;
+}
+
 export default function NetworkTab() {
-  const [hospitals, setHospitals] = useState<HospitalInfo[] | null>(null);
+  const [directory, setDirectory] = useState<Directory | null>(null);
   const [rounds, setRounds] = useState<Round[] | null>(null);
   const [memberCount, setMemberCount] = useState<number | null>(null);
   const [query, setQuery] = useState("");
-  const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
 
   useEffect(() => {
@@ -41,15 +54,14 @@ export default function NetworkTab() {
     const q = query.trim();
     const timer = setTimeout(
       () => {
-        const params = new URLSearchParams({ limit: String(DIRECTORY_PAGE) });
-        if (q) params.set("q", q);
-        apiFetch<HospitalInfo[]>(`/api/hospitals?${params}`, { signal: controller.signal })
+        apiFetch<HospitalInfo[]>(directoryPath(q), { signal: controller.signal })
           .then((list) => {
-            setHospitals(list);
-            setHasMore(list.length === DIRECTORY_PAGE);
+            setDirectory({ q, hospitals: list, hasMore: list.length === DIRECTORY_PAGE });
           })
           .catch(() => {
-            if (!controller.signal.aborted) setHospitals((current) => current ?? []);
+            if (!controller.signal.aborted) {
+              setDirectory((current) => current ?? { q, hospitals: [], hasMore: false });
+            }
           });
       },
       q ? 250 : 0,
@@ -61,14 +73,18 @@ export default function NetworkTab() {
   }, [query]);
 
   async function showMore() {
-    if (!hospitals) return;
+    if (!directory) return;
+    const shown = directory;
     setLoadingMore(true);
     try {
-      const params = new URLSearchParams({ limit: String(DIRECTORY_PAGE), offset: String(hospitals.length) });
-      if (query.trim()) params.set("q", query.trim());
-      const more = await apiFetch<HospitalInfo[]>(`/api/hospitals?${params}`);
-      setHospitals([...hospitals, ...more]);
-      setHasMore(more.length === DIRECTORY_PAGE);
+      const more = await apiFetch<HospitalInfo[]>(directoryPath(shown.q, shown.hospitals.length));
+      // A search that finished meanwhile replaced the list; this page belongs
+      // to the old one and must not be added to (or overwrite) the new one.
+      setDirectory((current) =>
+        current === shown
+          ? { q: shown.q, hospitals: [...shown.hospitals, ...more], hasMore: more.length === DIRECTORY_PAGE }
+          : current,
+      );
     } catch {
       /* keep what is showing; the button stays for another try */
     } finally {
@@ -76,7 +92,10 @@ export default function NetworkTab() {
     }
   }
 
-  const searching = query.trim().length > 0;
+  const hospitals = directory?.hospitals ?? null;
+  const hasMore = directory?.hasMore ?? false;
+  const shownQuery = directory?.q ?? "";
+  const searching = shownQuery.length > 0;
   const description =
     hospitals === null
       ? undefined
@@ -121,7 +140,7 @@ export default function NetworkTab() {
           ) : hospitals.length === 0 ? (
             searching ? (
               <EmptyState icon={<IconHospital size={18} />} title="No hospitals match">
-                Nothing in the directory matches &ldquo;{query.trim()}&rdquo;. Try part of a name or a city.
+                Nothing in the directory matches &ldquo;{shownQuery}&rdquo;. Try part of a name or a city.
               </EmptyState>
             ) : (
               <EmptyState icon={<IconHospital size={18} />} title="No hospitals registered yet">
