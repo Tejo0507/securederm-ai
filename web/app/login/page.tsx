@@ -22,6 +22,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [needsVerification, setNeedsVerification] = useState(false);
   const [resendState, setResendState] = useState<"idle" | "sending" | "sent">("idle");
+  const [resendError, setResendError] = useState("");
 
   // Sent here because the session ended (expired, or signed out elsewhere):
   // say so, rather than showing a bare login form with no explanation.
@@ -50,6 +51,9 @@ export default function LoginPage() {
     e.preventDefault();
     setError("");
     setNeedsVerification(false);
+    // A new attempt (perhaps with another address) may ask for a link again.
+    setResendState("idle");
+    setResendError("");
     setLoading(true);
     try {
       const hospital = await apiFetch<{ id: number; name: string }>("/api/auth/login", {
@@ -72,6 +76,7 @@ export default function LoginPage() {
 
   async function handleResend() {
     setResendState("sending");
+    setResendError("");
     try {
       const result = await apiFetch<{ dev_verification_token: string | null }>(
         "/api/auth/resend-verification",
@@ -82,8 +87,9 @@ export default function LoginPage() {
         return;
       }
       setResendState("sent");
-    } catch {
+    } catch (err: unknown) {
       setResendState("idle");
+      setResendError(err instanceof Error ? err.message : "Could not send the email.");
     }
   }
 
@@ -123,6 +129,7 @@ export default function LoginPage() {
                     : "Resend verification email"}
               </button>
             )}
+            {needsVerification && resendError && <p className="mt-1.5">{resendError}</p>}
           </Notice>
         )}
 
